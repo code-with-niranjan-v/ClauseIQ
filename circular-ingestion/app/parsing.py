@@ -1,4 +1,5 @@
 import re
+import subprocess
 import uuid
 from io import BytesIO
 
@@ -29,18 +30,42 @@ class PdfError(ValueError):
     """The PDF cannot be parsed or contains no extractable text."""
 
 
+def _recognize_page(page) -> str:
+    # Keep large pages within a bounded raster size.
+    resolution = min(300, 72 * 4000 / max(page.width, page.height))
+    with BytesIO() as image:
+        page.to_image(resolution=resolution).original.save(image, format="PNG")
+        try:
+            result = subprocess.run(
+                ["tesseract", "stdin", "stdout", "-l", "eng+hin", "--dpi", str(max(1, round(resolution)))],
+                input=image.getvalue(), capture_output=True, check=True, timeout=60,
+            )
+        except FileNotFoundError as error:
+            raise PdfError("OCR requires Tesseract with English and Hindi language data.") from error
+        except subprocess.TimeoutExpired as error:
+            raise PdfError(f"OCR timed out on page {page.page_number}.") from error
+        except subprocess.CalledProcessError as error:
+            detail = error.stderr.decode("utf-8", errors="replace").strip()
+            raise PdfError(f"OCR failed on page {page.page_number}: {detail}") from error
+    return result.stdout.decode("utf-8").strip()
+
+
 def extract_pages(pdf_bytes: bytes) -> list[Page]:
-    """Extract native text page by page. Page numbers are 1-based."""
+    """Extract native text, using OCR for pages with no text layer."""
     try:
         with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-            pages = [
-                Page(page_number=index, text=page.extract_text() or "")
-                for index, page in enumerate(pdf.pages, start=1)
-            ]
+            pages = []
+            for page in pdf.pages:
+                text = page.extract_text() or ""
+                if not text.strip():
+                    text = _recognize_page(page)
+                pages.append(Page(page_number=page.page_number, text=text))
+    except PdfError:
+        raise
     except Exception as error:  # pdfminer raises several unrelated exception types
         raise PdfError(f"Could not read the PDF: {error}") from error
     if not any(page.text.strip() for page in pages):
-        raise PdfError("The PDF has no extractable text. Scanned PDFs need OCR, which is out of scope.")
+        raise PdfError("No readable text was found in the PDF, including after OCR.")
     return pages
 
 

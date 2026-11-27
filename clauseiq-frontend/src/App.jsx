@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from './api.js'
 import FindingReview from './FindingReview.jsx'
+import ProcessingControls from './ProcessingControls.jsx'
 import { label } from './labels.js'
 import Status from './Status.jsx'
 
@@ -26,7 +27,7 @@ function useResource(load, tick) {
   return state
 }
 
-function Stage({ number, title, does, count, state, empty, children }) {
+function Stage({ number, title, does, count, state, empty, controls, children }) {
   const { data, error, loading } = state
   return (
     <section className="stage" aria-labelledby={`stage-${number}`}>
@@ -36,11 +37,40 @@ function Stage({ number, title, does, count, state, empty, children }) {
         {count != null && <span className="stage-count">{count}</span>}
         <p>{does}</p>
       </header>
+      {controls}
       {error && <p className="notice notice-bad" role="alert">{error}</p>}
       {loading && !data && <p className="notice">Loading…</p>}
       {data && data.length === 0 && !error && <p className="notice">{empty}</p>}
       {data && data.length > 0 && children}
     </section>
+  )
+}
+
+function PendingQueue({ queue }) {
+  const { data, error, loading } = queue
+  return (
+    <div className="processing-controls">
+      <h3>{data ? `Pending queue (${data.length})` : 'Pending queue'}</h3>
+      {loading && <p className="sub">Loading queue…</p>}
+      {error && <p className="notice notice-bad" role="alert">{error}</p>}
+      {!error && data?.length === 0 && <p className="sub">No PDFs are waiting.</p>}
+      {data?.length > 0 && (
+        <div className="table-wrap">
+          <table aria-label="Pending PDFs">
+            <thead><tr><th>PDF</th><th>Queued</th><th>Status</th></tr></thead>
+            <tbody>
+              {data.map((item) => (
+                <tr key={item.id}>
+                  <td><strong>{item.title || 'Untitled circular'}</strong><span className="sub">{item.regulator}</span></td>
+                  <td>{when(item.queuedAt)}</td>
+                  <td>{item.published ? 'Waiting for worker' : 'Waiting to be sent'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -65,6 +95,8 @@ export default function App() {
   const sources = useResource(api.sources, tick)
   const orderedSources = sources.data?.toSorted((a, b) => Number(b.id === 'rbi') - Number(a.id === 'rbi'))
   const documents = useResource(api.documents, tick)
+  const processing = useResource(api.processing, tick)
+  const queue = useResource(api.queue, tick)
   const obligations = useResource(api.obligations, tick)
   const findings = useResource(api.findings, tick)
 
@@ -174,7 +206,11 @@ export default function App() {
           does="The ingestion worker takes one event at a time, fetches the PDF and extracts its text page by page."
           count={documents.data ? plural(documents.data.length, 'document') : null}
           state={documents}
-          empty="No circular has reached the worker yet. Run a scan in stage 1."
+          empty="No circular has reached the worker yet."
+          controls={<>
+            <ProcessingControls processing={processing} refresh={refresh} />
+            <PendingQueue queue={queue} />
+          </>}
         >
           <div className="table-wrap">
             <table>

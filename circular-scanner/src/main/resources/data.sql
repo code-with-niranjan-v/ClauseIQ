@@ -16,3 +16,7 @@ INSERT INTO regulatory_source (id, name, regulator, listing_url, allowed_hosts, 
  'www.meity.gov.in,meity.gov.in,www.indiacode.nic.in,indiacode.nic.in,egazette.gov.in,www.egazette.gov.in,egazette.nic.in,www.egazette.nic.in',
  '(?i)(digital-personal-data-protection|data-protection-framework|/handle/|ViewPDF[.]aspx)')
 ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO regulatory_source (id, name, regulator, listing_url, allowed_hosts, detail_link_pattern, enabled)
+VALUES ('uploads', 'PDF uploads', 'Manual upload', '', '', '', false)
+ON CONFLICT (id) DO NOTHING;

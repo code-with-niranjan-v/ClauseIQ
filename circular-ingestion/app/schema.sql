@@ -164,3 +164,7 @@ CREATE TABLE IF NOT EXISTS recommendation (
 );
 
 CREATE INDEX IF NOT EXISTS recommendation_finding_idx ON recommendation (finding_id);
+CREATE TABLE IF NOT EXISTS ingestion_queue (
+    id boolean PRIMARY KEY CHECK (id),
+    cleared_before timestamptz NOT NULL
+);

@@ -18,6 +18,8 @@ class ScannerRepository {
     record Document(UUID id, UUID documentId, String regulator, String url, String title, String checksum,
                     String bucket, String key, OffsetDateTime createdAt) {}
 
+    record QueueEntry(UUID id, String title, String regulator, OffsetDateTime queuedAt, boolean published) {}
+
     private static final RowMapper<Source> SOURCE = (rs, row) -> new Source(
             rs.getString("id"), rs.getString("name"), rs.getString("regulator"), rs.getString("listing_url"),
             rs.getString("allowed_hosts"), rs.getString("detail_link_pattern"), rs.getBoolean("enabled"),
@@ -62,6 +64,14 @@ class ScannerRepository {
                 """, Boolean.class, source, checksum));
     }
 
+    boolean requeueUpload(String source, String checksum, OffsetDateTime cutoff) {
+        return jdbc.update("""
+                UPDATE scanned_document SET requeued_at = clock_timestamp(), published_at = NULL
+                WHERE source_id = ? AND checksum = ?
+                  AND COALESCE(requeued_at, created_at) <= ?
+                """, source, checksum, cutoff) > 0;
+    }
+
     int nextVersion(UUID documentId) {
         return jdbc.queryForObject("""
                 SELECT COALESCE(MAX(version_number), 0) + 1 FROM scanned_document WHERE document_id = ?
@@ -79,13 +89,25 @@ class ScannerRepository {
 
     Optional<Document> nextPending() {
         return jdbc.query("""
-                SELECT d.*, s.regulator FROM scanned_document d JOIN regulatory_source s ON d.source_id = s.id
-                WHERE d.published_at IS NULL ORDER BY d.created_at, d.id LIMIT 1 FOR UPDATE OF d SKIP LOCKED
+                SELECT d.*, s.regulator, COALESCE(d.requeued_at, d.created_at) AS queued_at
+                FROM scanned_document d JOIN regulatory_source s ON d.source_id = s.id
+                WHERE d.published_at IS NULL ORDER BY queued_at, d.id LIMIT 1 FOR UPDATE OF d SKIP LOCKED
                 """, (rs, row) -> new Document(rs.getObject("id", UUID.class),
                 rs.getObject("document_id", UUID.class), rs.getString("regulator"),
                 rs.getString("source_url"), rs.getString("title"), rs.getString("checksum"),
                 rs.getString("object_bucket"), rs.getString("object_key"),
-                rs.getObject("created_at", OffsetDateTime.class))).stream().findFirst();
+                rs.getObject("queued_at", OffsetDateTime.class))).stream().findFirst();
+    }
+
+    List<QueueEntry> queueEntries() {
+        return jdbc.query("""
+                SELECT d.id, d.title, s.regulator, COALESCE(d.requeued_at, d.created_at) AS queued_at,
+                       d.published_at IS NOT NULL AS published
+                FROM scanned_document d JOIN regulatory_source s ON s.id = d.source_id
+                ORDER BY queued_at, d.id
+                """, (rs, row) -> new QueueEntry(rs.getObject("id", UUID.class), rs.getString("title"),
+                rs.getString("regulator"), rs.getObject("queued_at", OffsetDateTime.class),
+                rs.getBoolean("published")));
     }
 
     void published(UUID id) {

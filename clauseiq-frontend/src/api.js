@@ -30,6 +30,20 @@ export const api = {
   summary: () => request('/api/summary'),
   sources: () => request('/api/admin/sources'),
   scan: (id) => post(`/api/admin/sources/${encodeURIComponent(id)}/scan`),
+  processing: () => request('/api/admin/processing'),
+  queue: () => request('/api/admin/sources/queue-entries'),
+  setPaused: (paused) => request('/api/admin/processing', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paused }),
+  }),
+  clearQueue: () => post('/api/admin/processing/clear'),
+  uploadPdf: (file, clearedBefore) => {
+    const body = new FormData()
+    body.append('file', file)
+    if (clearedBefore) body.append('clearedBefore', clearedBefore)
+    return request('/api/admin/sources/upload-pdf', { method: 'POST', body })
+  },
   documents: () => request('/api/documents'),
   obligations: () => request('/api/obligations'),
   findings: () => request('/api/findings'),
