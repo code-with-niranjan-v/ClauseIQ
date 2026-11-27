@@ -23,7 +23,7 @@ From `circular-scanner/`, copy `.env.example` to `.env` and fill in the three cr
 docker compose up --build -d --wait
 curl -fsS http://localhost:8081/actuator/health
 curl -fsS http://localhost:8081/api/admin/sources
-curl -fsS -X POST http://localhost:8081/api/admin/sources/sebi/scan
+curl -fsS -X POST http://localhost:8081/api/admin/sources/rbi/scan
 ```
 
 Compose starts the scanner and its three dependencies. The scanner API binds to loopback, and PostgreSQL, MinIO, and Kafka are confined to the Compose network. The manual endpoint is synchronous and returns the latest source result after processing finishes. An unknown source returns HTTP 404. A running or disabled source returns HTTP 409. For a completed attempt, inspect `lastRunStatus` for `SUCCESS`, `PARTIAL`, or `FAILED` and use `lastError` and the scanner logs to diagnose failures. Use `GET /api/admin/sources` to view scan timestamps and counters. Status reflects discovery and storage, while Kafka delivery retries independently.

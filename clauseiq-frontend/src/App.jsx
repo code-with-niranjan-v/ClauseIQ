@@ -63,6 +63,7 @@ export default function App() {
   }, [refresh])
 
   const sources = useResource(api.sources, tick)
+  const orderedSources = sources.data?.toSorted((a, b) => Number(b.id === 'rbi') - Number(a.id === 'rbi'))
   const documents = useResource(api.documents, tick)
   const obligations = useResource(api.obligations, tick)
   const findings = useResource(api.findings, tick)
@@ -132,11 +133,16 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {sources.data?.map((source) => (
+                {orderedSources?.map((source) => (
                   <tr key={source.id}>
                     <td>
                       <strong>{source.name}</strong>
-                      <span className="sub">{source.regulator}{source.enabled ? '' : ', disabled'}</span>
+                      <span className="sub">
+                        {source.regulator}{source.enabled ? '' : ', disabled'}
+                        {source.listingUrl?.startsWith('https://') && (
+                          <>, <a href={source.listingUrl} target="_blank" rel="noreferrer">listing</a></>
+                        )}
+                      </span>
                     </td>
                     <td>{when(source.lastRunAt)}</td>
                     <td>
@@ -152,7 +158,7 @@ export default function App() {
                         disabled={!source.enabled || scanning !== null}
                         onClick={() => scan(source)}
                       >
-                        {scanning === source.id ? 'Scanning…' : 'Scan now'}
+                        {scanning === source.id ? 'Scanning…' : source.id === 'rbi' ? 'Scan RBI' : 'Scan now'}
                       </button>
                     </td>
                   </tr>
