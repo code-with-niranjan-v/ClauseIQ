@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS processed_event (
     completed_at timestamptz
 );
 
+CREATE INDEX IF NOT EXISTS processed_event_document_attempt_idx
+    ON processed_event (document_version_id, started_at DESC, event_id DESC);
+
 CREATE TABLE IF NOT EXISTS regulatory_document (
     id text PRIMARY KEY,
     regulator text NOT NULL,

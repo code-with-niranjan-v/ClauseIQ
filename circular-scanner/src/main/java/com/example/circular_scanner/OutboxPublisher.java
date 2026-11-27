@@ -68,7 +68,13 @@ class OutboxPublisher {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Kafka publication interrupted", e);
         } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
-            throw new IllegalStateException("Kafka did not acknowledge the document", e);
+            log.warn("Kafka did not acknowledge circular {}", id, e);
+            repository.publicationFailed(document.id());
+            return false;
+        } catch (org.apache.kafka.common.KafkaException e) {
+            log.warn("Could not publish circular {}", id, e);
+            repository.publicationFailed(document.id());
+            return false;
         }
         repository.published(document.id());
         return true;

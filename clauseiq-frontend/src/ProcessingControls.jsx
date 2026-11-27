@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { api } from './api.js'
+import Status from './Status.jsx'
 
 const processingLabels = {
   STARTING: 'Processing is starting.',
@@ -35,7 +36,7 @@ export default function ProcessingControls({ processing, refresh }) {
   }
 
   async function clearQueue() {
-    if (!window.confirm('Clear all waiting PDFs? The current PDF can finish and processing will stay paused.')) return
+    if (!window.confirm('Clear all waiting PDFs and pause processing? The current PDF can finish. Completed results are kept. Upload any cleared PDFs again before resuming.')) return
     setChanging(true)
     setControlError(null)
     setClearMessage(null)
@@ -78,6 +79,13 @@ export default function ProcessingControls({ processing, refresh }) {
 
   return (
     <div className="processing-controls">
+      <div className="worker-status" role="status">
+        <strong>Worker</strong>
+        {data && <Status value={data.state} />}
+        <span>{error ? 'Worker status could not be refreshed.' : data
+          ? processingLabels[data.state] ?? 'The worker reported an unknown state.'
+          : 'Checking worker status…'}</span>
+      </div>
       <div className="buttons">
         <input ref={picker} type="file" accept=".pdf,application/pdf" onChange={upload} hidden />
         <button type="button" className="button button-primary" disabled={uploading || changing}
@@ -88,12 +96,13 @@ export default function ProcessingControls({ processing, refresh }) {
           onClick={toggleProcessing}>
           {data?.paused ? 'Resume processing' : 'Pause processing'}
         </button>
-        <button type="button" className="button button-danger" disabled={workerUnavailable || changing || uploading}
-          onClick={clearQueue}>
-          Clear queue
-        </button>
-        <span className="sub" role="status">{data ? processingLabels[data.state] : 'Checking worker status…'}</span>
       </div>
+      <details className="queue-management">
+        <summary>Queue management</summary>
+        <p className="sub">Clearing the queue removes waiting PDFs and pauses the worker. The current PDF can finish.</p>
+        <button type="button" className="button button-danger" disabled={workerUnavailable || changing || uploading}
+          onClick={clearQueue}>Clear queue</button>
+      </details>
       {(controlError || error) && <p className="notice notice-bad" role="alert">{controlError || error}</p>}
       {clearMessage && <p className="notice notice-good" role="status">{clearMessage}</p>}
       {uploadMessage && <p className={`notice notice-${uploadMessage.tone}`}

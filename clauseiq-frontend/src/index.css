@@ -165,3 +165,23 @@ select { max-width: 22rem; }
   .finding-row > :nth-child(3) { grid-area: status; }
   .finding-row > :nth-child(4) { grid-area: toggle; }
 }
+
+/* Pipeline troubleshooting */
+.dashboard-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 0.65rem; margin-bottom: 0.65rem; }
+.dashboard-filters label { display: grid; gap: 0.2rem; font-weight: 500; }
+.dashboard-filters input[type="search"] { width: min(16rem, 100%); }
+.results-count { margin-bottom: 0.5rem; }
+.dashboard-scroll { max-height: 28rem; }
+.dashboard-scroll th { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+.circular-progress { display: flex; flex-wrap: wrap; gap: 0.2rem 0.4rem; margin: 0.35rem 0; color: var(--muted); font-size: 0.78rem; min-width: 12rem; }
+.circular-progress li + li::before { content: "›"; margin-right: 0.4rem; color: var(--muted); }
+.circular-progress .done { color: var(--good); }
+.circular-progress .current { color: var(--accent); font-weight: 600; }
+.circular-progress .failed, .circular-error { color: var(--bad); overflow-wrap: anywhere; }
+.selected-circular { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: center; justify-content: space-between; padding: 0.7rem 1rem; background: var(--surface); border: 1px solid var(--rule); border-left: 3px solid var(--accent); }
+.selected-circular > div { min-width: 0; flex: 1 1 16rem; overflow-wrap: anywhere; }
+.stage { scroll-margin-top: 6rem; }
+.worker-status { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; }
+.queue-management { border-top: 1px solid var(--rule); padding-top: 0.4rem; }
+.queue-management summary { width: fit-content; cursor: pointer; color: var(--accent); }
+.queue-management[open] > :not(summary) { margin-top: 0.45rem; }

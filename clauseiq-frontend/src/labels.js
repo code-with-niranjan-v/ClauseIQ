@@ -20,6 +20,14 @@ const LABELS = {
   PARTIAL: 'Partial',
   FAILED: 'Failed',
   PROCESSING: 'Processing',
+  WAITING_TO_PUBLISH: 'Waiting to publish',
+  QUEUED: 'Queued for processing',
+  DEAD_LETTERED: 'Failed after retries',
+  PAUSING: 'Pausing',
+  PAUSED: 'Paused',
+  STARTING: 'Starting',
+  DEGRADED: 'Reconnecting',
+  STOPPED: 'Stopped',
   COMPLETED: 'Completed',
   HIGH: 'High',
   MEDIUM: 'Medium',
@@ -31,6 +39,8 @@ export const TONES = {
   PARTIALLY_COVERED: 'warn', PARTIAL: 'warn', PENDING_REVIEW: 'warn', PROCESSING: 'warn', RUNNING: 'warn',
   UNVERIFIED: 'warn', MEDIUM: 'warn',
   NOT_COVERED: 'bad', CONFLICTING: 'bad', FAILED: 'bad', REJECTED: 'bad', HIGH: 'bad',
+  QUEUED: 'warn', WAITING_TO_PUBLISH: 'warn', PAUSING: 'warn', PAUSED: 'warn',
+  STARTING: 'warn', DEGRADED: 'warn', STOPPED: 'bad', DEAD_LETTERED: 'bad',
 }
 
 export function label(value) {

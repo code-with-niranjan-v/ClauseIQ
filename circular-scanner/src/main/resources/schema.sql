@@ -35,3 +35,4 @@ CREATE INDEX IF NOT EXISTS scanned_document_outbox_idx
     ON scanned_document (created_at, id) WHERE published_at IS NULL;
 
 ALTER TABLE scanned_document ADD COLUMN IF NOT EXISTS requeued_at timestamptz;
+ALTER TABLE scanned_document ADD COLUMN IF NOT EXISTS publication_error text;

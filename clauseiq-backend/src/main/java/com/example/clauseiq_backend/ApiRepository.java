@@ -19,7 +19,8 @@ import tools.jackson.databind.ObjectMapper;
 class ApiRepository {
     record Document(String documentId, String documentVersionId, String regulator, String title, String sourceUrl,
                     String processingStatus, Integer pageCount, Integer obligationCount, int findingCount,
-                    int pendingFindingCount, OffsetDateTime createdAt, OffsetDateTime processedAt) {}
+                    int pendingFindingCount, OffsetDateTime createdAt, OffsetDateTime processedAt,
+                    String processingError, Integer processingAttempts, String eventStatus) {}
 
     record Citation(int pageNumber, String clauseNumber, String quotedText) {}
 
@@ -86,17 +87,24 @@ class ApiRepository {
         return jdbc.query("""
                 SELECT d.id AS document_id, v.id AS version_id, d.regulator, d.title, d.source_url,
                        v.processing_status, v.page_count, v.obligation_count, v.created_at, v.processed_at,
+                       e.last_error, e.attempts, e.status AS event_status,
                        (SELECT count(*) FROM finding f WHERE f.document_version_id = v.id) AS finding_count,
                        (SELECT count(*) FROM finding f WHERE f.document_version_id = v.id
                             AND f.status = 'PENDING_REVIEW') AS pending_count
                 FROM regulatory_document_version v JOIN regulatory_document d ON d.id = v.document_id
+                LEFT JOIN LATERAL (
+                    SELECT last_error, attempts, status FROM processed_event
+                    WHERE document_version_id = v.id
+                    ORDER BY started_at DESC, event_id DESC LIMIT 1
+                ) e ON true
                 ORDER BY v.created_at DESC, v.id
                 """, (rs, row) -> new Document(
                 rs.getString("document_id"), rs.getString("version_id"), rs.getString("regulator"),
                 rs.getString("title"), rs.getString("source_url"), rs.getString("processing_status"),
                 rs.getObject("page_count", Integer.class), rs.getObject("obligation_count", Integer.class),
                 rs.getInt("finding_count"), rs.getInt("pending_count"),
-                rs.getObject("created_at", OffsetDateTime.class), rs.getObject("processed_at", OffsetDateTime.class)));
+                rs.getObject("created_at", OffsetDateTime.class), rs.getObject("processed_at", OffsetDateTime.class),
+                rs.getString("last_error"), rs.getObject("attempts", Integer.class), rs.getString("event_status")));
     }
 
     List<Obligation> obligations(String documentVersionId, String coverageStatus) {
