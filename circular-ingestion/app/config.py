@@ -54,4 +54,8 @@ class Settings(BaseSettings):
     policy_top_k: int = 4
     control_top_k: int = 3
 
+    # Policy Q&A. Sources below the cosine-similarity threshold are not shown to the model.
+    chat_top_k: int = 5
+    chat_min_similarity: float = 0.3
+
 settings = Settings()

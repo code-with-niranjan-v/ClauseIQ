@@ -37,4 +37,5 @@ export const api = {
   approve: (id, body) => http.post(`${finding(id)}/approve`, body),
   editAndApprove: (id, body) => http.post(`${finding(id)}/edit-and-approve`, body),
   reject: (id, body) => http.post(`${finding(id)}/reject`, body),
+  ask: (question) => http.post('/chat', { question }),
 }

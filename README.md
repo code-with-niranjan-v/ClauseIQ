@@ -1,4 +1,4 @@
-﻿# ClauseIQ
+# ClauseIQ
 
 From the repository root, copy `.env.example` to `.env` and fill in `OPENAI_API_KEY`. The template already includes sample credentials for local PostgreSQL, Neo4j, and MinIO. Compose passes the API key only to the ingestion worker, and Git ignores the root `.env`.
 
@@ -21,15 +21,25 @@ The frontend shows scanner status, ingested circulars, cited obligations, policy
 
 Use `docker compose logs -f circular-ingestion` to see ingestion startup and processing. Check its health response for the consumer state. A healthy HTTP process can still be reconnecting to a dependency or waiting for a valid OpenAI key. Stop the stack with `docker compose down`.
 
+## Policy Q&A
+
+Press `/` in the RegDesk workbench, or click **Ask the approved policies**, to ask a policy question. The assistant answers only from approved policy text: sections of the policy handbook, and the policy wording of findings a reviewer approved or edited and approved. Each approved update cites the circular it came from. Pending and rejected findings, AI drafts and raw circular text are never used.
+
+Every answer lists its sources. If no approved source passes the similarity threshold, or the sources do not answer the question, the assistant says so and refers the employee to the Compliance Officer or Data Protection Officer. Set `CHAT_MIN_SIMILARITY` (default `0.3`) and `CHAT_TOP_K` (default `5`) in `.env` to tune retrieval. The backend endpoint is `POST /api/chat` with `{"question": "..."}`.
+
 ## Import a circular downloaded in your browser
 
-If the RBI download host sends the scanner an HTML page, open the circular URL in your browser and save the PDF. Pass its original RBI PDF URL, title, and local file to the scanner:
+The Docker scanner retries failed RBI PDF downloads with Playwright. If RBI publishes the circular text on its official notification page, the scanner can render that text to a PDF and queue it as an **RBI web version**, with a link to the official notification. If the circular is available only as a PDF and the scanner cannot retrieve it, open the circular URL in your browser and save the file. Pass its original RBI PDF URL, title, and local file to the scanner:
 
 ```powershell
 curl.exe --fail-with-body -F "url=$pdfUrl" -F "title=$title" -F "file=@$pdfPath" http://127.0.0.1:8081/api/admin/sources/rbi/import-pdf
 ```
 
 Set `$pdfUrl`, `$title`, and `$pdfPath` to your circular's values before running the command. A response of `{"added":true}` means the PDF was stored and queued for ingestion. The dashboard lists the circular once the worker receives the event. The source row continues to report the last automatic or manual scan.
+
+## Scanner DNS
+
+Some resolvers fail to resolve `www.sebi.gov.in`, so the scanner container uses 1.1.1.1 and 9.9.9.9 for DNS. If your network allows only its own DNS servers, set `SCANNER_DNS_PRIMARY` and `SCANNER_DNS_SECONDARY` in the root `.env`.
 
 ## If Neo4j fails to start
 
