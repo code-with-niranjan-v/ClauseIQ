@@ -1,6 +1,7 @@
 package com.example.circular_scanner;
 
 import java.nio.charset.StandardCharsets;
+import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
@@ -122,6 +123,10 @@ class ScanService {
         int discovered = 0;
         int added = 0;
         int processed = 0;
+        int notPdf = 0;
+        int blocked = 0;
+        // After one browser failure the others fail the same way, each costing several seconds.
+        boolean allowBrowser = true;
         String error = null;
         try {
             var result = publications.discover(source);
@@ -133,17 +138,23 @@ class ScanService {
             }
             for (var candidate : result.candidates()) {
                 try {
-                    if (ingest(source, candidate, publications.download(source, candidate))) {
+                    if (downloadAndIngest(source, candidate, allowBrowser)) {
                         added++;
                     }
                     processed++;
                 } catch (InterruptedException e) {
                     throw e;
                 } catch (PublicationClient.InvalidPdfResponse e) {
-                    error = "A download URL returned a response without a PDF header. "
-                            + "If it opens in your browser, download the PDF and use the manual import command in the README.";
+                    allowBrowser &= !PublicationClient.browserFailed(e);
+                    if (e.getMessage().contains("bot-protection")) {
+                        blocked++;
+                    } else {
+                        notPdf++;
+                    }
+                    error = downloadError(blocked, notPdf);
                     log.warn("Could not process a PDF for {} from {}: {}", source.id(), candidate.uri(), e.getMessage());
                 } catch (Exception e) {
+                    allowBrowser &= !PublicationClient.browserFailed(e);
                     error = "Could not process one or more PDFs. See scanner logs.";
                     log.warn("Could not process a PDF for {} from {}", source.id(), candidate.uri(), e);
                 }
@@ -159,6 +170,46 @@ class ScanService {
         repository.finished(source.id(), status, error, discovered, added);
     }
 
+    private static String downloadError(int blocked, int notPdf) {
+        var message = new StringBuilder();
+        if (blocked > 0) {
+            message.append(blocked).append(" PDF download(s) were blocked by the publisher's bot protection. ");
+        }
+        if (notPdf > 0) {
+            message.append(notPdf).append(" download link(s) did not return a PDF. ");
+        }
+        return message.append("For circulars without a readable web version, ")
+                .append("download the PDFs in your browser and use Upload PDFs.").toString();
+    }
+
+    private boolean downloadAndIngest(ScannerRepository.Source source, PublicationClient.Candidate candidate,
+                                      boolean allowBrowser) throws IOException, InterruptedException {
+        byte[] pdf;
+        try {
+            pdf = publications.download(source, candidate, allowBrowser);
+        } catch (IOException original) {
+            var web = candidate.webVersion();
+            if (web == null) {
+                throw original;
+            }
+            UUID documentId = stableId(source.id(), candidate.uri().toString());
+            String fingerprint = checksum(web.html().getBytes(StandardCharsets.UTF_8));
+            if (repository.knownWebVersion(source.id(), fingerprint)) {
+                return false;
+            }
+            try {
+                pdf = publications.renderWebVersion(web);
+            } catch (IOException renderError) {
+                log.warn("Could not render official RBI web version from {}", web.uri(), renderError);
+                original.addSuppressed(renderError);
+                throw original;
+            }
+            return storeDocument(source, pdf, checksum(pdf), documentId, web.uri().toString(),
+                    candidate.title() + " (RBI web version)", fingerprint);
+        }
+        return ingest(source, candidate, pdf);
+    }
+
     private boolean ingest(ScannerRepository.Source source, PublicationClient.Candidate candidate, byte[] pdf) {
         return ingest(source, candidate, pdf, checksum(pdf));
     }
@@ -172,11 +223,16 @@ class ScanService {
     }
 
     private boolean ingest(ScannerRepository.Source source, PublicationClient.Candidate candidate, byte[] pdf, String hash) {
+        String url = candidate.uri() == null ? "" : candidate.uri().toString();
+        UUID documentId = stableId(source.id(), url.isEmpty() ? hash : url);
+        return storeDocument(source, pdf, hash, documentId, url, candidate.title(), null);
+    }
+
+    private boolean storeDocument(ScannerRepository.Source source, byte[] pdf, String hash, UUID documentId,
+                                  String url, String title, String webFingerprint) {
         if (repository.known(source.id(), hash)) {
             return false;
         }
-        String url = candidate.uri() == null ? "" : candidate.uri().toString();
-        UUID documentId = stableId(source.id(), url.isEmpty() ? hash : url);
         UUID versionId = stableId(source.id(), hash);
         int version = repository.nextVersion(documentId);
         String key = source.regulator() + "/" + documentId + "/version-" + version + "/original.pdf";
@@ -185,7 +241,8 @@ class ScanService {
         } catch (Exception e) {
             throw new IllegalStateException("Could not store circular PDF", e);
         }
-        repository.insert(versionId, documentId, version, source.id(), url, candidate.title(), hash, store.bucket(), key);
+        repository.insert(versionId, documentId, version, source.id(), url, title, hash, store.bucket(), key,
+                webFingerprint);
         return true;
     }
 

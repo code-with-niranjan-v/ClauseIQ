@@ -2,6 +2,7 @@ package com.example.circular_scanner;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
@@ -47,7 +48,7 @@ class ScannerWorkflowTests {
                 """, id);
         var candidate = new PublicationClient.Candidate(URI.create(pdfUrl), "Test circular");
         when(publications.discover(any())).thenReturn(new PublicationClient.Discovery(List.of(candidate), 0));
-        when(publications.download(any(), eq(candidate))).thenReturn("%PDF-1.7\nfixture".getBytes(StandardCharsets.UTF_8));
+        when(publications.download(any(), eq(candidate), anyBoolean())).thenReturn("%PDF-1.7\nfixture".getBytes(StandardCharsets.UTF_8));
         when(store.bucket()).thenReturn("regulatory-originals");
         when(kafka.send(eq("regulatory.document.ingested"), anyString(), anyString()))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("Broker unavailable")),
@@ -74,7 +75,7 @@ class ScannerWorkflowTests {
             assertThat(payload.path("minioObjectKey").asText()).isEqualTo(document(id).get("object_key"));
             assertThat(payload.path("documentId").asText()).isEqualTo(document(id).get("document_id").toString());
 
-            when(publications.download(any(), eq(candidate)))
+            when(publications.download(any(), eq(candidate), anyBoolean()))
                     .thenReturn("%PDF-1.7\nupdated fixture".getBytes(StandardCharsets.UTF_8));
             assertThat(scan(id).path("lastNewDocuments").asInt()).isEqualTo(1);
             var versions = jdbc.queryForList("""
