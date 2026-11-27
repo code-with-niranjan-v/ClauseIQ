@@ -54,25 +54,37 @@ export default function ProcessingControls({ processing, refresh }) {
   }
 
   async function upload(event) {
-    const file = event.currentTarget.files[0]
+    const files = Array.from(event.currentTarget.files)
     event.currentTarget.value = ''
-    if (!file) return
-    if (file.size > 30 * 1024 * 1024) {
-      setUploadMessage({ tone: 'bad', text: 'Select a PDF up to 30 MiB.' })
-      return
-    }
+    if (!files.length) return
     setUploading(true)
     setUploadMessage(null)
+    let queued = 0
+    let duplicates = 0
+    const failures = []
+    const cutoff = data?.clearedBefore || clearedBefore
     try {
-      const result = await api.uploadPdf(file, data?.clearedBefore || clearedBefore)
+      // Save one file at a time so uploads use the scanner's existing source lock.
+      for (const file of files) {
+        if (file.size > 30 * 1024 * 1024) {
+          failures.push(`${file.name} exceeds 30 MiB.`)
+          continue
+        }
+        try {
+          const result = await api.uploadPdf(file, cutoff)
+          if (result.added) queued++
+          else duplicates++
+        } catch (error) {
+          failures.push(`${file.name}: ${error.message}`)
+        }
+      }
       setUploadMessage({
-        tone: 'good',
-        text: result.added ? `${file.name} was queued for processing.` : `${file.name} was already uploaded.`,
+        tone: failures.length ? 'bad' : 'good',
+        text: `${queued} queued, ${duplicates} already uploaded, ${failures.length} failed.`,
+        failures,
       })
-      refresh()
-    } catch (error) {
-      setUploadMessage({ tone: 'bad', text: error.message })
     } finally {
+      refresh()
       setUploading(false)
     }
   }
@@ -87,10 +99,10 @@ export default function ProcessingControls({ processing, refresh }) {
           : 'Checking worker status…'}</span>
       </div>
       <div className="buttons">
-        <input ref={picker} type="file" accept=".pdf,application/pdf" onChange={upload} hidden />
+        <input ref={picker} type="file" accept=".pdf,application/pdf" multiple onChange={upload} hidden />
         <button type="button" className="button button-primary" disabled={uploading || changing}
           onClick={() => picker.current.click()}>
-          {uploading ? 'Uploading…' : 'Upload PDF'}
+          {uploading ? 'Uploading…' : 'Upload PDFs'}
         </button>
         <button type="button" className="button" disabled={workerUnavailable || changing}
           onClick={toggleProcessing}>
@@ -105,8 +117,14 @@ export default function ProcessingControls({ processing, refresh }) {
       </details>
       {(controlError || error) && <p className="notice notice-bad" role="alert">{controlError || error}</p>}
       {clearMessage && <p className="notice notice-good" role="status">{clearMessage}</p>}
-      {uploadMessage && <p className={`notice notice-${uploadMessage.tone}`}
-        role={uploadMessage.tone === 'bad' ? 'alert' : 'status'}>{uploadMessage.text}</p>}
+      {uploadMessage && (
+        <div className={`notice notice-${uploadMessage.tone}`} role={uploadMessage.tone === 'bad' ? 'alert' : 'status'}>
+          <p>{uploadMessage.text}</p>
+          {uploadMessage.failures.length > 0 && (
+            <ul>{uploadMessage.failures.map((failure, index) => <li key={index}>{failure}</li>)}</ul>
+          )}
+        </div>
+      )}
     </div>
   )
 }

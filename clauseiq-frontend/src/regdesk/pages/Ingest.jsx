@@ -16,19 +16,34 @@ export default function Ingest({ data, refresh }) {
     catch (error) { setMessage(error.message) }
     finally { setBusy(false); refresh() }
   }
-  function upload(file) {
-    if (!file) return
-    if (!file.name.toLowerCase().endsWith('.pdf')) { setMessage('Choose a PDF file.'); return }
+  function upload(fileList) {
+    const files = Array.from(fileList ?? [])
+    if (!files.length) return
     perform(async () => {
-      await api.uploadPdf(file, processing?.clearedBefore)
-      return `${file.name} queued for ingestion.`
-    }, `Uploading ${file.name}…`)
+      let queued = 0
+      let duplicates = 0
+      const failures = []
+      // One file at a time, so uploads take the scanner's source lock in turn.
+      for (const file of files) {
+        if (!file.name.toLowerCase().endsWith('.pdf')) { failures.push(`${file.name} is not a PDF`); continue }
+        if (file.size > 30 * 1024 * 1024) { failures.push(`${file.name} exceeds 30 MiB`); continue }
+        try {
+          const result = await api.uploadPdf(file, processing?.clearedBefore)
+          if (result?.added) queued++
+          else duplicates++
+        } catch (error) {
+          failures.push(`${file.name}: ${error.message}`)
+        }
+      }
+      const summary = `${queued} queued, ${duplicates} already uploaded, ${failures.length} failed.`
+      return failures.length ? `${summary} ${failures.join('; ')}` : summary
+    }, `Uploading ${files.length} PDF${files.length === 1 ? '' : 's'}…`)
   }
   return <><Heading name="Ingest" description="Upload PDFs or pull from regulator sites." />
     <div className="strip"><label className={`drop ${dragging ? 'o' : ''}`} onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
-      onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); upload(event.dataTransfer.files[0]) }}>
-      <input type="file" accept=".pdf,application/pdf" disabled={busy} onChange={(event) => { upload(event.target.files[0]); event.target.value = '' }} />
-      ⬆ Drop a PDF here or click to upload</label>
+      onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); upload(event.dataTransfer.files) }}>
+      <input type="file" accept=".pdf,application/pdf" multiple disabled={busy} onChange={(event) => { upload(event.target.files); event.target.value = '' }} />
+      ⬆ Drop PDFs here or click to upload</label>
       <button className="btn" disabled={busy || !processing} onClick={() => perform(async () => {
         await api.setPaused(!processing.paused)
         return processing.paused ? 'Processing resumed.' : 'Processing paused.'
