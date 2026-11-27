@@ -27,7 +27,8 @@ class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/api/**").allowedOrigins(origins).allowedMethods("GET", "POST");
+        registry.addMapping("/api/**").allowedOrigins(origins).allowedMethods("GET", "POST", "PUT", "PATCH")
+                .allowCredentials(true);
     }
 
     /** Every API error has the same JSON shape: status, error and message. */

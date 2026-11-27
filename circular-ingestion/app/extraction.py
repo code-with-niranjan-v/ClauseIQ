@@ -91,6 +91,14 @@ Rules:
 - Return an empty list if the page imposes no obligations."""
 
 
+_EMPTY = {"null", "none", "n/a", "na", "not specified", "not stated", "not mentioned", ""}
+
+
+def _value(text: str | None) -> str | None:
+    """Models sometimes write the word "null" instead of returning no value."""
+    return None if text is None or text.strip().lower() in _EMPTY else text.strip()
+
+
 class LlmExtractor:
     """Extracts obligations page by page with a structured-output chat model."""
 
@@ -114,9 +122,9 @@ class LlmExtractor:
                     quoted_text=item.quotedText,
                     summary=item.summary,
                     required_action=item.requiredAction,
-                    responsible_entity=item.responsibleEntity,
-                    deadline=item.deadline,
-                    applicability=item.applicability,
+                    responsible_entity=_value(item.responsibleEntity),
+                    deadline=_value(item.deadline),
+                    applicability=_value(item.applicability),
                     confidence=item.confidence,
                     extraction_method=self.method,
                 ))

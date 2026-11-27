@@ -23,24 +23,27 @@ class ReviewService {
 
     private final ApiRepository repository;
     private final ObjectMapper json;
+    private final UserStore users;
 
-    ReviewService(ApiRepository repository, ObjectMapper json) {
+    ReviewService(ApiRepository repository, ObjectMapper json, UserStore users) {
         this.repository = repository;
         this.json = json;
+        this.users = users;
     }
 
     @Transactional
     ApiRepository.FindingDetail approve(UUID id, Review review) {
-        var reviewer = reviewer(review == null ? null : review.reviewer());
+        var reviewer = reviewer();
         var before = claim(id, "APPROVED");
-        repository.recordDecision(id, "APPROVED", reviewer, blankToNull(review.comment()), snapshot(before), null);
+        repository.recordDecision(id, "APPROVED", reviewer, review == null ? null : blankToNull(review.comment()),
+                snapshot(before), null);
         return repository.finding(id).orElseThrow();
     }
 
     @Transactional
     ApiRepository.FindingDetail reject(UUID id, Review review) {
-        var reviewer = reviewer(review == null ? null : review.reviewer());
-        if (blankToNull(review.comment()) == null) {
+        var reviewer = reviewer();
+        if (review == null || blankToNull(review.comment()) == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "comment is required to reject a finding");
         }
         var before = claim(id, "REJECTED");
@@ -50,7 +53,10 @@ class ReviewService {
 
     @Transactional
     ApiRepository.FindingDetail editAndApprove(UUID id, Edit edit) {
-        var reviewer = reviewer(edit == null ? null : edit.reviewer());
+        var reviewer = reviewer();
+        if (edit == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No edited fields were sent.");
+        }
         String severity = blankToNull(edit.severity());
         if (severity != null && !SEVERITIES.contains(severity)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "severity must be HIGH, MEDIUM or LOW");
@@ -111,11 +117,9 @@ class ReviewService {
         return node;
     }
 
-    private static String reviewer(String reviewer) {
-        if (blankToNull(reviewer) == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "reviewer is required");
-        }
-        return reviewer.strip();
+    /** Decisions are recorded against the signed-in user. A reviewer name in the request body is ignored. */
+    private String reviewer() {
+        return users.current().signature();
     }
 
     private static void put(ObjectNode node, String name, String value) {

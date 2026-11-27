@@ -348,11 +348,12 @@ class PostgresRepository:
             cursor.execute(
                 """
                 UPDATE regulatory_document_version
-                SET processing_status = 'COMPLETED', page_count = %s, obligation_count = %s,
+                SET processing_status = 'COMPLETED', page_count = %s, ocr_page_count = %s, obligation_count = %s,
                     rejected_obligation_count = %s, processed_at = now()
                 WHERE id = %s
                 """,
-                (result.page_count, len(result.obligations), len(result.rejected), result.document_version_id),
+                (result.page_count, result.ocr_page_count, len(result.obligations), len(result.rejected),
+                 result.document_version_id),
             )
             cursor.execute(
                 """

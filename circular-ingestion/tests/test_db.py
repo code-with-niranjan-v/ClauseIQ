@@ -23,7 +23,7 @@ def repository():
     repository.ensure_schema()
     repository.ensure_schema()  # safe to run on every start
     with psycopg.connect(URL) as connection:
-        connection.execute(f"TRUNCATE {TABLES}")
+        connection.execute(f"TRUNCATE {TABLES} CASCADE")  # also clears tables that reference these
     return repository
 
 
@@ -119,7 +119,7 @@ def test_knowledge_is_seeded_once_and_findings_are_stored(repository):
     assert repository.seed_knowledge(loaded, embedder, "hash:64") is True
     assert repository.seed_knowledge(loaded, embedder, "hash:64") is False  # unchanged files are not re-embedded
     assert embedder.calls == 2
-    assert repository.roles() == sorted(loaded.roles)
+    assert sorted(repository.roles()) == sorted(loaded.roles)  # database collation may order differently
     query = embedder.embed(["review audit logs for regulated systems every quarter"])[0]
     assert repository.search_policies(query, 1)[0].heading == "Audit logging"
     assert repository.search_controls(query, 1)[0].control_id == "CTRL-003"

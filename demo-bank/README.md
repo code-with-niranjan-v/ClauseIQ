@@ -8,7 +8,7 @@ Kaveri Bank and its NeoPay digital banking platform are fictional. They exist to
 | [neopay-architecture.png](../clauseiq-frontend/public/demo-bank/neopay-architecture.png) | Architecture diagram | Vision model, read into factual statements |
 | [neopay-er-diagram.png](../clauseiq-frontend/public/demo-bank/neopay-er-diagram.png) | ER diagram of the core database | Vision model, read into factual statements |
 
-The files are served by the frontend, so **Use demo bank files** on the RegDesk System assessment page uploads all three. To change them, edit `generate_artifacts.py` and run it from the repository root:
+The files are served by the frontend, so **Use demo bank files** on the ClauseIQ System assessment page uploads all three. To change them, edit `generate_artifacts.py` and run it from the repository root:
 
 ```sh
 python demo-bank/generate_artifacts.py

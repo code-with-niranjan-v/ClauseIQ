@@ -62,4 +62,9 @@ class Settings(BaseSettings):
     system_min_similarity: float = 0.3
     system_max_obligations: int = 20
 
+    # Live database scans. name=postgresql://user:password@host:port/db, separated by semicolons.
+    # Use a role that can only connect; the scan reads catalogue metadata, never rows.
+    scan_targets: str = ""
+    scan_use_ai: bool = True
+
 settings = Settings()

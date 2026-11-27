@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from 'react'
-import { api } from '../../api.js'
+import { api, reportUrl } from '../../api.js'
+import { useAuth } from '../../authContext.js'
 import { Heading, Table, Tag } from '../components.jsx'
 import { date, title } from '../format.js'
 
@@ -78,6 +79,7 @@ function Detail({ assessment }) {
 }
 
 export default function SystemAssessment() {
+  const user = useAuth()
   const [name, setName] = useState('')
   const [files, setFiles] = useState({})
   const [list, setList] = useState([])
@@ -148,15 +150,15 @@ export default function SystemAssessment() {
 
   const chosen = inputs.filter(({ key }) => files[key]).length
   return <><Heading name="System assessment" description="Compare a system's SRE document, architecture diagram and ER diagram with ingested circulars.">
-    <button className="btn" disabled={busy} onClick={loadDemo}>Use demo bank files</button></Heading>
-    <form className="strip sa-form" onSubmit={(event) => { event.preventDefault(); submit(files, name) }}>
+    {user.can.review && <button className="btn" disabled={busy} onClick={loadDemo}>Use demo bank files</button>}</Heading>
+    {user.can.review && <form className="strip sa-form" onSubmit={(event) => { event.preventDefault(); submit(files, name) }}>
       <input className="f sa-name" aria-label="System name" placeholder="System name" maxLength={120} value={name}
         onChange={(event) => setName(event.target.value)} />
       {inputs.map(({ key, label, hint }) => <label key={key} className={`sa-file ${files[key] ? 'on' : ''}`}>
         <input type="file" accept={accept} onChange={(event) => setFiles({ ...files, [key]: event.target.files[0] })} />
         <b>{label}</b><span>{files[key]?.name ?? hint}</span></label>)}
       <button className="btn p" disabled={busy || chosen === 0}>{busy ? 'Uploading…' : 'Run assessment'}</button>
-    </form>
+    </form>}
     {message && <p className="sa-error" role="alert">{message}</p>}
     <div className="sa-cols">
       <div className="sec sa-list"><div className="sh">Assessments <span>{list.length}</span></div>
@@ -166,7 +168,9 @@ export default function SystemAssessment() {
           <small>{date(item.createdAt)} · {item.status === 'COMPLETED' ? `${item.openFindings} open, ${item.highFindings} high` : item.stage || item.error || ''}</small>
         </button>)}
       </div>
-      <div className="sa-detail">{detail ? <><div className="sh sa-title">{detail.name}<span>{title(detail.status)}</span></div><Detail assessment={detail} /></>
+      <div className="sa-detail">{detail ? <><div className="sh sa-title">{detail.name}<span>{title(detail.status)}</span>
+        {detail.status === 'COMPLETED' && <span className="r"><a className="btn" href={reportUrl.system(detail.id, 'pdf')} download>Export PDF</a>
+          <a className="btn" href={reportUrl.system(detail.id, 'docx')} download>Word</a></span>}</div><Detail assessment={detail} /></>
         : <p className="workbench-empty">Select an assessment.</p>}</div>
     </div>
   </>

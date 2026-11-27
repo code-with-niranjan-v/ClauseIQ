@@ -2,23 +2,14 @@ import { useEffect, useState } from 'react'
 import { api } from './api.js'
 import { label } from './labels.js'
 import Status from './Status.jsx'
-
-const REVIEWER_KEY = 'clauseiq.reviewer'
-
-function savedReviewer() {
-  try {
-    return localStorage.getItem(REVIEWER_KEY) ?? ''
-  } catch {
-    return ''
-  }
-}
+import { useAuth } from './authContext.js'
 
 export default function FindingReview({ id, onDecided }) {
   const [finding, setFinding] = useState(null)
   const [roles, setRoles] = useState([])
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
-  const [reviewer, setReviewer] = useState(savedReviewer)
+  const user = useAuth()
   const [comment, setComment] = useState('')
   const [draft, setDraft] = useState('')
   const [action, setAction] = useState('')
@@ -50,7 +41,7 @@ export default function FindingReview({ id, onDecided }) {
 
   const recommendation = finding.recommendation
   const obligation = finding.obligation
-  const pending = finding.status === 'PENDING_REVIEW'
+  const pending = finding.status === 'PENDING_REVIEW' && user.can.review
   const edits = {}
   if (recommendation) {
     if (draft.trim() !== recommendation.draftPolicyText) edits.draftPolicyText = draft
@@ -60,19 +51,10 @@ export default function FindingReview({ id, onDecided }) {
   const edited = Object.keys(edits).length > 0
 
   async function decide(send) {
-    if (!reviewer.trim()) {
-      setError('Enter your name before you record a decision.')
-      return
-    }
     setBusy(true)
     setError(null)
     try {
-      localStorage.setItem(REVIEWER_KEY, reviewer.trim())
-    } catch {
-      // The name is only remembered as a convenience.
-    }
-    try {
-      show(await send({ reviewer: reviewer.trim(), comment: comment.trim() || undefined }))
+      show(await send({ comment: comment.trim() || undefined }))
       setComment('')
       onDecided()
     } catch (failure) {
@@ -157,10 +139,7 @@ export default function FindingReview({ id, onDecided }) {
         <section className="decision">
           <h3>Your decision</h3>
           <div className="decision-fields">
-            <label>
-              Your name
-              <input type="text" value={reviewer} disabled={busy} onChange={(event) => setReviewer(event.target.value)} />
-            </label>
+            <p className="sub">Recorded as <strong>{user.displayName}</strong></p>
             <label>
               Comment (needed to reject)
               <input type="text" value={comment} disabled={busy} onChange={(event) => setComment(event.target.value)} />

@@ -3,6 +3,8 @@ package com.example.clauseiq_backend;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sun.net.httpserver.HttpServer;
+import java.net.CookieManager;
+import java.net.HttpCookie;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -20,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import tools.jackson.databind.JsonNode;
@@ -37,6 +40,14 @@ class ClauseiqBackendApplicationTests {
     @LocalServerPort int port;
     @Autowired JdbcTemplate jdbc;
     @Autowired ObjectMapper json;
+    @Autowired PasswordEncoder encoder;
+
+    static final String PASSWORD = "correct horse battery";
+    final String suffix = UUID.randomUUID().toString().substring(0, 8);
+    final String reviewerName = "meena-" + suffix;
+    final String viewerName = "vijay-" + suffix;
+    final String adminName = "asha-" + suffix;
+    Session session;
 
     final String documentId = "doc-" + UUID.randomUUID();
     final String versionId = "ver-" + UUID.randomUUID();
@@ -82,6 +93,12 @@ class ClauseiqBackendApplicationTests {
 
     @BeforeEach
     void insertFixture() throws Exception {
+        for (String[] user : new String[][] {{reviewerName, "Meena", "REVIEWER"}, {viewerName, "Vijay", "VIEWER"},
+                {adminName, "Asha", "ADMIN"}}) {
+            jdbc.update("INSERT INTO app_user (id, username, display_name, password_hash, role) VALUES (?, ?, ?, ?, ?)",
+                    UUID.randomUUID(), user[0], user[1], encoder.encode(PASSWORD), user[2]);
+        }
+        session = login(reviewerName);
         String workerSchema = Files.readString(Path.of("..", "circular-ingestion", "app", "schema.sql"))
                 .replace("{dimensions}", "8").replace("{{}}", "{}");
         jdbc.execute(workerSchema);
@@ -132,6 +149,7 @@ class ClauseiqBackendApplicationTests {
 
     @AfterEach
     void removeFixture() {
+        jdbc.update("DELETE FROM app_user WHERE username IN (?, ?, ?)", reviewerName, viewerName, adminName);
         jdbc.update("DELETE FROM review_decision WHERE finding_id = ?", findingId);
         jdbc.update("DELETE FROM document_chunk WHERE id IN (?, ?)", circularChunk, policyChunk); // cascades
         jdbc.update("DELETE FROM regulatory_document_version WHERE id = ?", versionId);
@@ -190,9 +208,6 @@ class ClauseiqBackendApplicationTests {
 
     @Test
     void approveRecordsTheDecisionAndCannotBeRepeated() throws Exception {
-        var noReviewer = post("/api/findings/" + findingId + "/approve", "{}");
-        assertThat(noReviewer.status).isEqualTo(400);
-        assertThat(noReviewer.body.path("message").asString()).isEqualTo("reviewer is required");
         assertThat(post("/api/findings/" + findingId + "/approve", "not json").status).isEqualTo(400);
 
         var approved = post("/api/findings/" + findingId + "/approve", "{\"reviewer\":\"meena\",\"comment\":\"ok\"}");
@@ -200,7 +215,8 @@ class ClauseiqBackendApplicationTests {
         assertThat(approved.body.path("status").asString()).isEqualTo("APPROVED");
         JsonNode decision = approved.body.path("decisions").get(0);
         assertThat(decision.path("decision").asString()).isEqualTo("APPROVED");
-        assertThat(decision.path("reviewer").asString()).isEqualTo("meena");
+        // The signed-in user is recorded, whatever name the request body claims.
+        assertThat(decision.path("reviewer").asString()).isEqualTo("Meena (" + reviewerName + ")");
         assertThat(decision.path("originalValue").path("draftPolicyText").asString()).isEqualTo("AI draft wording");
 
         assertThat(post("/api/findings/" + findingId + "/reject",
@@ -256,20 +272,113 @@ class ClauseiqBackendApplicationTests {
         assertThat(busy.body.path("message").asString()).contains("already running");
     }
 
+    @Test
+    void signInIsRequiredAndRolesLimitWhatUsersCanDo() throws Exception {
+        var anonymous = new Session();
+        assertThat(anonymous.get("/api/documents").status).isEqualTo(401);
+        assertThat(anonymous.get("/api/auth/me").status).isEqualTo(401);
+        assertThat(anonymous.post("/api/auth/login",
+                "{\"username\":\"" + reviewerName + "\",\"password\":\"wrong password\"}").status).isEqualTo(401);
+
+        var viewer = login(viewerName);
+        assertThat(viewer.get("/api/auth/me").body.path("role").asString()).isEqualTo("VIEWER");
+        assertThat(viewer.get("/api/findings/" + findingId).status).isEqualTo(200);
+        var denied = viewer.post("/api/findings/" + findingId + "/approve", "{}");
+        assertThat(denied.status).isEqualTo(403);
+        assertThat(denied.body.path("message").asString()).contains("role");
+        assertThat(viewer.get("/api/admin/users").status).isEqualTo(403);
+
+        // A state change without the CSRF header is refused even for a signed-in reviewer.
+        assertThat(session.post("/api/findings/" + findingId + "/approve", "{}", false).status).isEqualTo(403);
+        assertThat(get("/api/findings/" + findingId).body.path("status").asString()).isEqualTo("PENDING_REVIEW");
+
+        assertThat(session.post("/api/auth/logout", "").status).isEqualTo(204);
+        assertThat(session.get("/api/documents").status).isEqualTo(401);
+    }
+
+    @Test
+    void administratorsManageUsersButCannotLockThemselvesOut() throws Exception {
+        var admin = login(adminName);
+        assertThat(admin.get("/api/admin/users").body.toString()).contains(reviewerName).doesNotContain("password");
+        assertThat(admin.post("/api/admin/users", "{\"username\":\"x\",\"role\":\"VIEWER\",\"password\":\"long enough pass\"}")
+                .status).isEqualTo(400);
+        assertThat(admin.post("/api/admin/users", "{\"username\":\"new-" + suffix
+                + "\",\"role\":\"VIEWER\",\"password\":\"short\"}").status).isEqualTo(400);
+        var created = admin.post("/api/admin/users", "{\"username\":\"New-" + suffix
+                + "\",\"displayName\":\"New Person\",\"role\":\"viewer\",\"password\":\"long enough pass\"}");
+        assertThat(created.status).isEqualTo(201);
+        assertThat(created.body.path("username").asString()).isEqualTo("new-" + suffix);
+        assertThat(created.body.path("role").asString()).isEqualTo("VIEWER");
+        try {
+            String self = jdbc.queryForObject("SELECT id::text FROM app_user WHERE username = ?", String.class, adminName);
+            assertThat(admin.patch("/api/admin/users/" + self, "{\"role\":\"VIEWER\"}").status).isEqualTo(409);
+            var promoted = admin.patch("/api/admin/users/" + created.body.path("id").asString(), "{\"role\":\"REVIEWER\"}");
+            assertThat(promoted.body.path("role").asString()).isEqualTo("REVIEWER");
+        } finally {
+            jdbc.update("DELETE FROM app_user WHERE username = ?", "new-" + suffix);
+        }
+    }
+
     record Reply(int status, JsonNode body) {}
 
+    Session login(String username) throws Exception {
+        var user = new Session();
+        var reply = user.post("/api/auth/login", "{\"username\":\"" + username + "\",\"password\":\"" + PASSWORD + "\"}");
+        assertThat(reply.status).as("sign in as %s", username).isEqualTo(200);
+        return user;
+    }
+
     Reply get(String path) throws Exception {
-        return send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).GET().build());
+        return session.get(path);
     }
 
     Reply post(String path, String body) throws Exception {
-        return send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
-                .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build());
+        return session.post(path, body);
     }
 
-    Reply send(HttpRequest request) throws Exception {
-        var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
-        return new Reply(response.statusCode(), json.readTree(response.body()));
+    /** A browser-like client: keeps the session cookie and echoes the XSRF-TOKEN cookie as a header. */
+    class Session {
+        final CookieManager cookies = new CookieManager();
+        final HttpClient client = HttpClient.newBuilder().cookieHandler(cookies).build();
+
+        Reply get(String path) throws Exception {
+            return send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).GET().build());
+        }
+
+        Reply post(String path, String body) throws Exception {
+            return post(path, body, true);
+        }
+
+        Reply post(String path, String body, boolean csrf) throws Exception {
+            return write("POST", path, body, csrf);
+        }
+
+        Reply patch(String path, String body) throws Exception {
+            return write("PATCH", path, body, true);
+        }
+
+        Reply write(String method, String path, String body, boolean csrf) throws Exception {
+            if (csrfToken() == null) {
+                get("/api/auth/me");   // any request sets the XSRF-TOKEN cookie
+            }
+            var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                    .header("Content-Type", "application/json")
+                    .method(method, HttpRequest.BodyPublishers.ofString(body));
+            if (csrf) {
+                request.header("X-XSRF-TOKEN", csrfToken());
+            }
+            return send(request.build());
+        }
+
+        String csrfToken() {
+            return cookies.getCookieStore().getCookies().stream().filter(cookie -> cookie.getName().equals("XSRF-TOKEN"))
+                    .map(HttpCookie::getValue).findFirst().orElse(null);
+        }
+
+        Reply send(HttpRequest request) throws Exception {
+            var response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            return new Reply(response.statusCode(), response.body().isEmpty() ? json.nullNode() : json.readTree(response.body()));
+        }
     }
 
     static JsonNode find(JsonNode array, String field, String value) {

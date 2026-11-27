@@ -25,6 +25,7 @@ class IngestionEvent(BaseModel):
 class Page(BaseModel):
     page_number: int  # 1-based
     text: str
+    ocr: bool = False  # True when the text came from OCR because the page had no text layer
 
 
 class Chunk(BaseModel):
@@ -76,6 +77,7 @@ class IngestionResult(BaseModel):
     document_id: str
     document_version_id: str
     page_count: int
+    ocr_page_count: int = 0
     chunks: list[Chunk]
     obligations: list[Obligation]
     rejected: list[RejectedObligation]
