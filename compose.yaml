@@ -157,9 +157,10 @@ services:
     volumes:
       - neo4j-data:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:7474 || exit 1"]
+      test: ["CMD", "wget", "--no-proxy", "--tries=1", "--timeout=3", "-qO", "/dev/null", "http://127.0.0.1:7474/"]
       interval: 5s
       timeout: 5s
+      start_period: 30s
       retries: 30
 
   clauseiq-frontend:
