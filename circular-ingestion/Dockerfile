@@ -5,8 +5,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app ./app
-COPY sample-data ./sample-data
+COPY --chown=10001:10001 app ./app
+COPY --chown=10001:10001 sample-data ./sample-data
 
 RUN useradd --system --uid 10001 worker
 USER worker
