@@ -99,10 +99,10 @@ export default function RegDesk() {
     <div className="me" title="Reviewer">R</div></header>
     <nav className="rail" aria-label="Workbench">{nav.map(({ name, icon, path }, index) => <Link key={path} to={path} className={`rb ${page === index ? 'on' : ''}`} data-t={name}
       aria-label={name} aria-current={page === index ? 'page' : undefined}><svg viewBox="0 0 24 24"><path d={icon} /></svg>
-      {index === 2 && <b>{findings.filter(pending).length}</b>}</Link>)}
-      <Link className="rb" to="/test" data-t="Testing dashboard" aria-label="Testing dashboard"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 10l2 2-2 2m5 0h3" /></svg></Link>
+      <span className="nav-label">{name}</span>{index === 2 && <b>{findings.filter(pending).length}</b>}</Link>)}
+      <Link className="rb" to="/test" data-t="Testing dashboard" aria-label="Testing dashboard"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 10l2 2-2 2m5 0h3" /></svg><span className="nav-label">Testing dashboard</span></Link>
       <span className="sp" /><button className="rb" data-t="Policy Q&A ( / )" aria-label="Policy Q&A" onClick={() => setQa(true)}>
-        <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" /></svg></button></nav>
+        <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" /></svg><span className="nav-label">Policy Q&amp;A</span></button></nav>
     <main key={page}><div className="pg">{(error || (page !== 2 && detailError)) && <p className="workbench-empty" role="status">{error || detailError}</p>}{screen}</div></main>
   </div>{qa && <aside className="slide" aria-label="Policy Q&A"><div className="sh">Policy Q&A <span>approved policies only</span>
     <button autoFocus className="btn r" onClick={() => setQa(false)}>Close <kbd>Esc</kbd></button></div>

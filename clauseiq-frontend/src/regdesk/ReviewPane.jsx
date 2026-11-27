@@ -58,14 +58,19 @@ export default function ReviewPane({ finding, roles, onSaved }) {
   const controls = finding.controls.map((item) => item.name).join(', ')
   const ref = [obligation.regulator, citation?.clauseNumber].filter(Boolean).join(' ')
   return <>
+    <header className="review-heading">
+      <div className="review-heading-status"><span className={`review-status ${pending ? 'pending' : finding.status === 'REJECTED' ? 'rejected' : 'approved'}`}>{status}</span>
+        <span className={`tag ${level}`}>{level}</span><span className="cl" title={id}>{id.slice(0, 8)}</span></div>
+      <h1>{finding.title}</h1>
+      <p>{obligation.summary}</p>
+    </header>
     <div className="doc"><div className="paper">
       <h4>{obligation.regulator} · {obligation.documentTitle}{citation ? ` · PAGE ${citation.pageNumber}` : ''}</h4>
       <p className="hit"><span className="no">{citation?.clauseNumber || '—'}</span>{citation?.quotedText || 'No source quote available.'}
         <br /><span className="anno">▲ obligation {obligation.id} · confidence {Math.round(obligation.confidence * 100)}%</span></p>
     </div></div>
     <section className="insp sec" aria-label="Finding inspector">
-      <div className="sh"><span className="cl" title={id}>{id.slice(0, 8)}</span><span>{status}</span><span className="r"><b className={`tag ${level}`}>{level}</b></span></div>
-      <div className="ib"><strong>{finding.title}</strong><p className="muted">{obligation.summary}</p></div>
+      <div className="sh">Finding details</div>
       <div className="ib"><dl>
         <dt>Cited</dt><dd className="cl">{ref}{citation && `, p.${citation.pageNumber}`}</dd>
         <dt>Confidence</dt><dd><span className={`cf ${confidence < 80 ? 'lo' : ''}`}><i><b style={{ width: `${confidence}%` }} /></i>{confidence}</span></dd>
