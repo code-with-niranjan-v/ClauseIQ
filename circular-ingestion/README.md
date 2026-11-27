@@ -1,19 +1,28 @@
 # Circular ingestion
 
-Python worker for Phase 2 of [PLAN.md](../PLAN.md). It consumes the events that `circular-scanner` publishes, reads each circular from MinIO, and stores cited obligations.
+Python worker for the AI processing workstream in [PLAN.md](../PLAN.md). It consumes the events that `circular-scanner` publishes, reads each circular from MinIO, extracts cited obligations, compares them with internal policies and controls, and stores findings for human review.
 
-For each event the worker:
+It uses OpenAI for obligation extraction, coverage assessment, drafting and embeddings. `OPENAI_API_KEY` is required.
 
-1. Skips the event if it was already processed.
-2. Downloads the PDF from MinIO and checks its SHA-256 against the event.
-3. Extracts text page by page.
-4. Splits each page into clause-aware chunks with exact character offsets.
-5. Extracts obligations, with an LLM or with the rule-based fallback.
-6. Rejects any obligation whose quote does not occur on the cited page.
-7. Embeds the chunks.
-8. Writes clauses and obligations to Neo4j, then writes chunks, obligations and citations to PostgreSQL and marks the event completed in the same transaction.
+For each event the worker runs a LangGraph workflow in [app/workflow.py](app/workflow.py). The node names are the ones in the plan:
 
-Steps 2 to 8 are a LangGraph workflow in [app/workflow.py](app/workflow.py) with the node names from the plan: `load_document`, `parse_pages`, `detect_clauses`, `extract_obligations`, `validate_citations`, `index_regulatory_content`, `persist_results`. The Day 2 nodes (`retrieve_internal_evidence` to `await_human_review`) are not built yet and attach after `persist_results`.
+| Node | What it does |
+| --- | --- |
+| `load_document` | Downloads the PDF from MinIO and checks its SHA-256 against the event. |
+| `parse_pages` | Extracts text page by page. |
+| `detect_clauses` | Splits each page into clause-aware chunks with exact character offsets. |
+| `extract_obligations` | Asks the model for obligations, one page at a time. |
+| `validate_citations` | Rejects any obligation whose quote is not on the cited page. |
+| `index_regulatory_content` | Embeds the chunks. |
+| `retrieve_internal_evidence` | Finds the closest policy sections and controls for each obligation in pgvector. |
+| `map_policies_and_controls` | Asks the model how far the retrieved policy sections cover the obligation. |
+| `check_role_coverage` | Checks that each matched control has an owner in the role directory. |
+| `assess_gap` | Applies the gap rules to set the coverage status, finding type and severity. |
+| `draft_recommendation` | Asks the model for draft policy wording, an action and a role for each gap. |
+| `persist_results` | Writes to Neo4j, then to PostgreSQL in one transaction that also marks the event completed. |
+| `await_human_review` | Ends the graph. Findings are stored as `PENDING_REVIEW` for the review API. |
+
+Before the workflow starts, the worker skips any event it has already processed.
 
 ## Contract with circular-scanner
 
@@ -34,7 +43,7 @@ The event must have `eventType` `REGULATORY_DOCUMENT_INGESTED`. Unknown fields a
 The scanner's Compose project owns Kafka and MinIO and does not publish their ports to the host, so the worker joins the scanner's network.
 
 1. Start the scanner from `circular-scanner/` first.
-2. Copy `.env.example` to `.env` here. Set `POSTGRES_PASSWORD` and `NEO4J_PASSWORD`, and set `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` to the scanner's values.
+2. Copy `.env.example` to `.env` here. Set `OPENAI_API_KEY`, `POSTGRES_PASSWORD` and `NEO4J_PASSWORD`, and set `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` to the scanner's values.
 3. Check the scanner's network name with `docker network ls` and set `SCANNER_NETWORK` if it is not `circular-scanner_default`.
 
 ```sh
@@ -49,12 +58,15 @@ This Compose file starts its own PostgreSQL because the scanner's `postgres:17` 
 
 ## Try it on one PDF
 
-This runs the pipeline on a local file with no Kafka, MinIO or database and prints the obligations as JSON:
+This runs the whole workflow on a local file with no Kafka, MinIO or database. It needs only an OpenAI key, and it reads the policies, controls and roles from `sample-data/`.
 
 ```sh
 pip install -r requirements-dev.txt
-python -m app.cli path/to/circular.pdf
+export OPENAI_API_KEY=...
+python -m app.cli sample-data/circulars/sample-circular.pdf
 ```
+
+It prints each obligation with its citation, coverage and, for a gap, the drafted finding.
 
 ## Configuration
 
@@ -62,6 +74,10 @@ Settings are environment variables, read in [app/config.py](app/config.py).
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `OPENAI_API_KEY` | empty | Required |
+| `LLM_MODEL` | `gpt-4o-mini` | Chat model for extraction, assessment and drafting |
+| `LLM_TEMPERATURE` | `0` | Set to `1` for models that reject other values |
+| `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS` | `text-embedding-3-small`, `1536` | Embeddings and the pgvector column size |
 | `KAFKA_BOOTSTRAP_SERVERS` | `kafka:9092` | Broker |
 | `KAFKA_TOPIC` | `regulatory.document.ingested` | Scanner topic |
 | `KAFKA_DEAD_LETTER_TOPIC` | `regulatory.document.ingested.dlq` | Events that failed every attempt |
@@ -69,27 +85,78 @@ Settings are environment variables, read in [app/config.py](app/config.py).
 | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | `minio:9000`, empty | PDF store |
 | `DATABASE_URL` | `postgresql://clauseiq:clauseiq@postgres:5432/clauseiq` | PostgreSQL with pgvector |
 | `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` | empty | Empty URI skips graph writes |
-| `LLM_MODEL`, `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_API_KEY` | empty, `openai` | Chat model for extraction |
-| `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS` | `hash`, `text-embedding-3-small`, `384` | Chunk embeddings |
+| `KNOWLEDGE_DIR` | `sample-data` | Policy handbook, control register and roles |
+| `SEED_KNOWLEDGE_ON_START` | `true` | Load `KNOWLEDGE_DIR` at startup |
+| `POLICY_TOP_K`, `CONTROL_TOP_K` | `4`, `3` | Evidence retrieved per obligation |
 | `CONSUMER_ENABLED` | `true` | `false` starts only the health API |
 
-Only the OpenAI provider package is installed. `LLM_BASE_URL` covers OpenAI-compatible local servers. For another provider, add its LangChain package to `requirements.txt` and set `LLM_PROVIDER`.
+`gpt-4o-mini` is the default because it is cheap. Set `LLM_MODEL` to a stronger model for better legal reading. The worker makes one call per page for extraction, one per obligation for assessment and one per gap for drafting.
+
+`EMBEDDING_DIMENSIONS` sets the size of the `document_chunk.embedding` column when the table is first created. A database created with the earlier 384-dimension default needs its `document_chunk` table dropped before the worker starts.
+
+`EXTRACTION_MODE=rules` and `EMBEDDING_PROVIDER=hash` are offline substitutes for development and tests. Assessment and drafting always need OpenAI.
+
+## Internal knowledge
+
+The worker loads three files from `KNOWLEDGE_DIR` at startup:
+
+| File | Content |
+| --- | --- |
+| `policy_handbook.md` | One `## N. Heading` per policy section |
+| `controls.csv` | `control_id`, `name`, `description`, `owner_role`, `frequency`, `policy_section` |
+| `roles.csv` | `name` |
+
+The files in `sample-data/` are mock data written for the demo: eight policy sections, seven controls and nine roles. Replace them with the compliance team's versions in the same format. The worker embeds them again only when a file or the embedding model changes.
+
+`sample-data/circulars/sample-circular.pdf` is a mock circular written to exercise each outcome against that handbook: one covered obligation, a retention conflict, a missing reporting deadline, a control with no owner (`CTRL-006`) and an obligation with no policy. Regenerate it with `python scripts/make_sample_circular.py`.
 
 ## Extraction and citations
 
-With `LLM_MODEL` set, the model reads one page at a time and returns structured obligations with a quote. The page text is passed as data, and the prompt tells the model not to follow instructions inside it.
+The model reads one page at a time and returns structured obligations with a quote. The page text is passed as data, and the prompt tells the model not to follow instructions inside it.
 
-Without `LLM_MODEL`, the rule-based extractor flags sentences with mandatory wording such as "shall", "must" and "is required to". It quotes whole sentences, sets confidence to 0.5, and leaves the responsible entity empty. It is a fallback for demos and tests, not a substitute for the model.
+Every obligation goes through the check in [app/citations.py](app/citations.py). The page number comes from the page that was sent, the quote must occur on that page (ignoring only whitespace differences from line wraps), and the clause number comes from the parsed chunk, not from the model. A clause that was not detected is stored as null. Rejected obligations are logged and counted in `regulatory_document_version.rejected_obligation_count`.
 
-Both paths go through the same check in [app/citations.py](app/citations.py). The page number comes from the page that was sent, the quote must occur on that page (ignoring only whitespace differences from line wraps), and the clause number comes from the parsed chunk, not from the model. A clause that was not detected is stored as null. Rejected obligations are logged and counted in `regulatory_document_version.rejected_obligation_count`.
+## Coverage and gaps
+
+For each obligation the model sees only the retrieved policy sections and controls and returns a coverage reading, the ids it relied on and a policy quote. The worker then checks that reading in [app/assessment.py](app/assessment.py):
+
+- Ids that were not supplied are dropped.
+- A policy quote that is not in the matched section is dropped.
+- The final status and finding type come from fixed rules, not from the model.
+
+| Condition | Coverage status | Finding type | Severity |
+| --- | --- | --- | --- |
+| Model reads the policy as contradicting the obligation | `CONFLICTING` | `POLICY_CONFLICT` | HIGH |
+| Model finds no policy section | `NOT_COVERED` | `POLICY_GAP` | HIGH |
+| Model reads the policy as incomplete | `PARTIALLY_COVERED` | `PARTIAL_POLICY_GAP` | MEDIUM |
+| Policy covers it, no control matched | `PARTIALLY_COVERED` | `CONTROL_DESIGN_GAP` | MEDIUM |
+| Control matched, no owner in the role directory | `PARTIALLY_COVERED` | `OWNERSHIP_GAP` | MEDIUM |
+| Model cannot decide, or claims coverage with no valid policy section | `UNVERIFIED` | `IMPLEMENTATION_UNVERIFIED` | LOW |
+| Policy, control and owner all present | `COVERED` | none | none |
+
+`COVERED` means the documents cover the obligation. The stored explanation says that implementation evidence was not assessed.
+
+Each finding gets a drafted title, description, policy wording, action, deadline and evidence list. The assigned role must be in the role directory. If the model names anything else, the worker uses the owner of the matched control, or the Compliance Officer, and keeps the model's original answer in `original_ai_output`.
 
 ## Storage
 
-The worker creates its tables at startup from [app/schema.sql](app/schema.sql): `processed_event`, `regulatory_document`, `regulatory_document_version`, `document_chunk`, `obligation` and `citation`.
+The worker creates its tables at startup from [app/schema.sql](app/schema.sql).
 
-Circular chunks are stored with `document_type = 'CIRCULAR'` and `approval_status = 'APPROVED'`. The employee chatbot must still filter on `document_type = 'POLICY'`.
+| Table | Content |
+| --- | --- |
+| `processed_event` | Idempotency and attempt count per event |
+| `regulatory_document`, `regulatory_document_version` | Circular metadata and processing status |
+| `document_chunk` | Circular, policy and control text with embeddings |
+| `obligation`, `citation` | Extracted obligations, their coverage status and source quotes |
+| `internal_document`, `control`, `organizational_role` | Loaded internal knowledge |
+| `obligation_mapping` | Policy sections and controls retrieved per obligation, with `matched` |
+| `finding`, `recommendation` | Gaps with status `PENDING_REVIEW`, and the drafted remediation |
 
-Neo4j holds `(RegulatoryDocument)-[:CONTAINS]->(Clause)-[:CREATES]->(Obligation)`. Node IDs are the PostgreSQL IDs of the document, chunk and obligation.
+The review API can update `finding.status` and should write its decisions to its own `review_decision` table. `original_ai_output` on `finding` and `recommendation` keeps what the model returned before any human edit.
+
+Drafted policy text is stored only in `recommendation`. It is never written as a `POLICY` chunk, so the employee chatbot's filter (`document_type = 'POLICY'` and `approval_status = 'APPROVED'`) cannot return it.
+
+Neo4j holds the relationships from the plan: `RegulatoryDocument CONTAINS Clause`, `Clause CREATES Obligation`, `Obligation MAPS_TO PolicySection`, `Obligation SATISFIED_BY Control`, `Control OWNED_BY Role`, `Obligation HAS_GAP Finding`, `Finding RESOLVED_BY Recommendation` and `Recommendation ASSIGNED_TO Role`. Node IDs are the PostgreSQL IDs.
 
 ## Failures
 
@@ -97,7 +164,7 @@ A failed document is retried up to `MAX_ATTEMPTS`. After that the original messa
 
 Malformed events go straight to the dead-letter topic. If PostgreSQL or Kafka is down, the offset is not committed and the event is redelivered.
 
-A MinIO, Neo4j or LLM outage counts as a document failure, so three failed attempts during an outage dead-letter the event.
+A MinIO, Neo4j or OpenAI outage counts as a document failure, so three failed attempts during an outage dead-letter the event. A missing `OPENAI_API_KEY` stops the consumer from starting, and `/health` shows the reason.
 
 ## Tests
 
@@ -110,12 +177,13 @@ The database tests run only when `TEST_DATABASE_URL` points at a disposable Post
 
 ## Not verified
 
+- No OpenAI call has been made, because no key was available. The prompts, the model's judgement on the sample circular and the embedding-based retrieval are untested against the real API. The tests use a scripted model and offline embeddings.
 - The worker has not been run against a live Kafka, MinIO or Neo4j. The Kafka loop is tested with fakes, and the Neo4j queries have not been executed.
 - The Compose file passes `docker compose config` but has not been started.
-- The LLM path is tested with a fake model, not a real one.
 
 ## Limitations
 
 - Scanned PDFs have no text layer and fail with `PdfError`. OCR is out of scope.
-- The `hash` embedding matches shared words, not meaning. Switch to a real model before the Day 2 mapping work.
 - Clause detection covers numbered clauses (`4`, `4.2`, `Clause 4.2`) and bracketed items (`(a)`, `(iv)`). Tables and multi-column layouts are not handled.
+- A large circular means many OpenAI calls, made one after another.
+- SRS and SRE comparison, the employee chatbot and the sensitive-field scanner are not part of this worker yet.

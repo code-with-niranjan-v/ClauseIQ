@@ -6,7 +6,9 @@ from typing import Protocol
 import psycopg
 from pgvector.psycopg import register_vector
 
-from app.models import IngestionEvent, IngestionResult
+from app.embeddings import Embedder
+from app.knowledge import CONTROL_DOCUMENT_ID, POLICY_DOCUMENT_ID, Knowledge, control_text
+from app.models import ControlEvidence, IngestionEvent, IngestionResult, PolicyEvidence
 
 SCHEMA = Path(__file__).with_name("schema.sql")
 
@@ -37,6 +39,92 @@ class PostgresRepository:
     def ping(self) -> None:
         with self._connect(vectors=False) as connection:
             connection.execute("SELECT 1")
+
+    # Internal knowledge -------------------------------------------------
+
+    def seed_knowledge(self, knowledge: Knowledge, embedder: Embedder, embedding_label: str) -> bool:
+        """Load the handbook, controls and roles. Returns False when they are already current.
+
+        Embeddings are only requested when the files or the embedding model changed.
+        """
+        checksum = f"{knowledge.checksum}:{embedding_label}"
+        with self._connect() as connection, connection.cursor() as cursor:
+            current = cursor.execute(
+                "SELECT checksum FROM internal_document WHERE id = %s", (POLICY_DOCUMENT_ID,)).fetchone()
+            if current and current[0] == checksum:
+                return False
+            policy_vectors = embedder.embed([item.content for item in knowledge.policies])
+            control_vectors = embedder.embed([control_text(item) for item in knowledge.controls])
+            cursor.execute("DELETE FROM document_chunk WHERE document_id = ANY(%s)",
+                           ([POLICY_DOCUMENT_ID, CONTROL_DOCUMENT_ID],))
+            for identifier, kind, title in ((POLICY_DOCUMENT_ID, "POLICY", knowledge.title),
+                                            (CONTROL_DOCUMENT_ID, "CONTROL", "Control register")):
+                cursor.execute(
+                    """
+                    INSERT INTO internal_document (id, document_type, title, checksum, approval_status)
+                    VALUES (%s, %s, %s, %s, 'APPROVED')
+                    ON CONFLICT (id) DO UPDATE
+                        SET title = EXCLUDED.title, checksum = EXCLUDED.checksum, updated_at = now()
+                    """,
+                    (identifier, kind, title, checksum))
+            cursor.executemany(
+                "INSERT INTO organizational_role (name) VALUES (%s) ON CONFLICT DO NOTHING",
+                [(role,) for role in knowledge.roles])
+            cursor.executemany(
+                """
+                INSERT INTO control (id, name, description, owner_role, frequency, policy_section)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (id) DO UPDATE
+                    SET name = EXCLUDED.name, description = EXCLUDED.description, owner_role = EXCLUDED.owner_role,
+                        frequency = EXCLUDED.frequency, policy_section = EXCLUDED.policy_section
+                """,
+                [(item.control_id, item.name, item.description, item.owner_role, item.frequency,
+                  item.policy_section) for item in knowledge.controls])
+            cursor.execute("DELETE FROM control WHERE NOT (id = ANY(%s))",
+                           ([item.control_id for item in knowledge.controls],))
+            cursor.executemany(
+                """
+                INSERT INTO document_chunk
+                    (id, document_id, document_type, section_number, heading, content, embedding, approval_status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'APPROVED')
+                """,
+                [(item.chunk_id, POLICY_DOCUMENT_ID, "POLICY", item.section_number, item.heading, item.content,
+                  _vector(vector)) for item, vector in zip(knowledge.policies, policy_vectors, strict=True)]
+                + [(_uuid("control", item.control_id), CONTROL_DOCUMENT_ID, "CONTROL", item.control_id, item.name,
+                    control_text(item), _vector(vector))
+                   for item, vector in zip(knowledge.controls, control_vectors, strict=True)])
+            return True
+
+    def search_policies(self, embedding: list[float], limit: int) -> list[PolicyEvidence]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, document_id, section_number, heading, content, 1 - (embedding <=> %(query)s)
+                FROM document_chunk
+                WHERE document_type = 'POLICY' AND approval_status = 'APPROVED'
+                ORDER BY embedding <=> %(query)s LIMIT %(limit)s
+                """,
+                {"query": _vector(embedding), "limit": limit}).fetchall()
+        return [PolicyEvidence(chunk_id=str(row[0]), document_id=row[1], section_number=row[2], heading=row[3],
+                               content=row[4], similarity=float(row[5])) for row in rows]
+
+    def search_controls(self, embedding: list[float], limit: int) -> list[ControlEvidence]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT c.id, c.name, c.description, c.owner_role, c.frequency, c.policy_section,
+                       1 - (k.embedding <=> %(query)s)
+                FROM document_chunk k JOIN control c ON c.id = k.section_number
+                WHERE k.document_type = 'CONTROL' AND k.approval_status = 'APPROVED'
+                ORDER BY k.embedding <=> %(query)s LIMIT %(limit)s
+                """,
+                {"query": _vector(embedding), "limit": limit}).fetchall()
+        return [ControlEvidence(control_id=row[0], name=row[1], description=row[2], owner_role=row[3],
+                                frequency=row[4], policy_section=row[5], similarity=float(row[6])) for row in rows]
+
+    def roles(self) -> list[str]:
+        with self._connect(vectors=False) as connection:
+            return [row[0] for row in connection.execute("SELECT name FROM organizational_role ORDER BY name")]
 
     def begin_event(self, event: IngestionEvent) -> bool:
         """Claim the event. Returns False when it has already been processed.
@@ -123,6 +211,53 @@ class PostgresRepository:
                   item.citation.end_offset)
                  for item in result.obligations],
             )
+            cursor.executemany(
+                "UPDATE obligation SET coverage_status = %s, coverage_explanation = %s WHERE id = %s",
+                [(item.coverage_status, item.explanation, item.obligation_id) for item in result.assessments],
+            )
+            cursor.executemany(
+                """
+                INSERT INTO obligation_mapping
+                    (id, obligation_id, target_type, target_id, section_number, similarity, matched)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                [(_uuid("mapping", item.obligation_id, kind, target), item.obligation_id, kind, target,
+                  section, similarity, matched)
+                 for item in result.assessments
+                 for kind, target, section, similarity, matched in (
+                     [("POLICY_SECTION", policy.chunk_id, policy.section_number, policy.similarity, policy.matched)
+                      for policy in item.policies]
+                     + [("CONTROL", control.control_id, control.policy_section, control.similarity, control.matched)
+                        for control in item.controls])],
+            )
+            findings = [item for item in result.assessments if item.finding_type and item.recommendation]
+            cursor.executemany(
+                """
+                INSERT INTO finding
+                    (id, obligation_id, document_id, document_version_id, finding_type, coverage_status, severity,
+                     title, explanation, policy_section, policy_quote, confidence, original_ai_output)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                [(_uuid("finding", item.obligation_id), item.obligation_id, result.document_id,
+                  result.document_version_id, item.finding_type, item.coverage_status, item.severity,
+                  item.recommendation.gap_title, item.explanation, item.policy_section, item.policy_quote,
+                  item.confidence, json.dumps(item.original_ai_output))
+                 for item in findings],
+            )
+            cursor.executemany(
+                """
+                INSERT INTO recommendation
+                    (id, finding_id, draft_policy_text, recommended_action, assigned_role, suggested_deadline,
+                     required_evidence, confidence, original_ai_output)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                [(_uuid("recommendation", item.obligation_id), _uuid("finding", item.obligation_id),
+                  item.recommendation.draft_policy_text, item.recommendation.recommended_action,
+                  item.recommendation.assigned_role, item.recommendation.suggested_deadline,
+                  json.dumps(item.recommendation.required_evidence), item.recommendation.confidence,
+                  json.dumps(item.recommendation.original_ai_output))
+                 for item in findings],
+            )
             cursor.execute(
                 """
                 UPDATE regulatory_document_version
@@ -153,6 +288,10 @@ class PostgresRepository:
                 """,
                 (event.document_version_id,),
             )
+
+
+def _uuid(*parts: str) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, "clauseiq:" + ":".join(parts)))
 
 
 def _vector(embedding: list[float] | None):

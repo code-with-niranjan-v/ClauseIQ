@@ -1,0 +1,8 @@
+control_id,name,description,owner_role,frequency,policy_section
+CTRL-001,Access review,Review privileged access to systems that hold regulated information and remove access that is no longer needed,IAM Manager,Quarterly,4
+CTRL-002,Retention review,Review records that have passed their retention period and approve their disposal,Data Governance Lead,Monthly,3
+CTRL-003,Log review,Review audit logs and security logs for regulated systems and record the outcome of the review,SOC Manager,Quarterly,5
+CTRL-004,Incident classification and reporting,Classify security incidents and report incidents that affect regulated information to the regulator,SOC Manager,Per incident,6
+CTRL-005,Consent register check,Check that consent records exist for processing beyond the original service,Data Protection Officer,Quarterly,2
+CTRL-006,Third-party risk assessment,Assess the security of each third party before personal data is shared and once a year after that,,Annual,7
+CTRL-007,Deletion request tracking,Track personal-data deletion requests to completion within thirty days,Data Protection Officer,Monthly,8

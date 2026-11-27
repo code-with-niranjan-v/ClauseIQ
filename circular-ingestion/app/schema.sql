@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS document_chunk (
     start_offset integer,
     end_offset integer,
     embedding vector({dimensions}),
-    metadata jsonb NOT NULL DEFAULT '{{}}',
+    metadata jsonb NOT NULL DEFAULT '{{}}'::jsonb,
     approval_status text NOT NULL,     -- DRAFT, APPROVED
     created_at timestamptz NOT NULL DEFAULT now()
 );
@@ -69,8 +69,13 @@ CREATE TABLE IF NOT EXISTS obligation (
     applicability text,
     confidence real NOT NULL,
     extraction_method text NOT NULL,   -- LLM, RULES
+    coverage_status text,              -- COVERED, PARTIALLY_COVERED, NOT_COVERED, CONFLICTING, UNVERIFIED
+    coverage_explanation text,
     created_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE obligation ADD COLUMN IF NOT EXISTS coverage_status text;
+ALTER TABLE obligation ADD COLUMN IF NOT EXISTS coverage_explanation text;
 
 CREATE INDEX IF NOT EXISTS obligation_version_idx ON obligation (document_version_id);
 
@@ -87,3 +92,75 @@ CREATE TABLE IF NOT EXISTS citation (
 );
 
 CREATE INDEX IF NOT EXISTS citation_obligation_idx ON citation (obligation_id);
+
+-- Internal knowledge, loaded from the policy handbook, control register and role directory.
+CREATE TABLE IF NOT EXISTS internal_document (
+    id text PRIMARY KEY,
+    document_type text NOT NULL,       -- POLICY, CONTROL
+    title text NOT NULL,
+    checksum text NOT NULL,
+    approval_status text NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS organizational_role (
+    name text PRIMARY KEY
+);
+
+CREATE TABLE IF NOT EXISTS control (
+    id text PRIMARY KEY,
+    name text NOT NULL,
+    description text NOT NULL,
+    owner_role text,                   -- NULL is an ownership gap
+    frequency text,
+    policy_section text
+);
+
+-- Evidence retrieved for an obligation. `matched` marks what the assessment relied on.
+CREATE TABLE IF NOT EXISTS obligation_mapping (
+    id uuid PRIMARY KEY,
+    obligation_id uuid NOT NULL REFERENCES obligation(id) ON DELETE CASCADE,
+    target_type text NOT NULL,         -- POLICY_SECTION, CONTROL
+    target_id text NOT NULL,           -- document_chunk.id or control.id
+    section_number text,
+    similarity real NOT NULL,
+    matched boolean NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS obligation_mapping_obligation_idx ON obligation_mapping (obligation_id);
+
+CREATE TABLE IF NOT EXISTS finding (
+    id uuid PRIMARY KEY,
+    obligation_id uuid NOT NULL REFERENCES obligation(id) ON DELETE CASCADE,
+    document_id text NOT NULL,
+    document_version_id text NOT NULL,
+    finding_type text NOT NULL,
+    coverage_status text NOT NULL,
+    severity text NOT NULL,
+    title text NOT NULL,
+    explanation text NOT NULL,
+    policy_section text,
+    policy_quote text,
+    confidence real NOT NULL,
+    status text NOT NULL DEFAULT 'PENDING_REVIEW',
+    original_ai_output jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS finding_version_idx ON finding (document_version_id);
+CREATE INDEX IF NOT EXISTS finding_status_idx ON finding (status);
+
+CREATE TABLE IF NOT EXISTS recommendation (
+    id uuid PRIMARY KEY,
+    finding_id uuid NOT NULL REFERENCES finding(id) ON DELETE CASCADE,
+    draft_policy_text text NOT NULL,
+    recommended_action text NOT NULL,
+    assigned_role text NOT NULL REFERENCES organizational_role(name),
+    suggested_deadline text,
+    required_evidence jsonb NOT NULL,
+    confidence real NOT NULL,
+    original_ai_output jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS recommendation_finding_idx ON recommendation (finding_id);

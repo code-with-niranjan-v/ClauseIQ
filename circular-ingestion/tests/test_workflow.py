@@ -65,10 +65,11 @@ class FakeChatModel:
 
 
 def test_llm_obligation_with_an_invented_quote_is_rejected(sample_pdf):
+    blank = {"responsibleEntity": None, "deadline": None, "applicability": None}
     real = {"summary": "Retain audit logs for five years", "requiredAction": "Retain audit logs",
-            "quotedText": "Audit logs must be retained for a period of five years.", "confidence": 0.9}
+            "quotedText": "Audit logs must be retained for a period of five years.", "confidence": 0.9, **blank}
     invented = {"summary": "Encrypt logs", "requiredAction": "Encrypt audit logs",
-                "quotedText": "Audit logs must be encrypted with approved algorithms.", "confidence": 0.95}
+                "quotedText": "Audit logs must be encrypted with approved algorithms.", "confidence": 0.95, **blank}
     model = FakeChatModel([[real, invented], []])
     event, _, _, pipeline = build(sample_pdf, extractor=LlmExtractor(model))
 

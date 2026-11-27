@@ -5,13 +5,16 @@ from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from app import citations, parsing
+from app import assessment, citations, parsing
+from app.assessment import Assessor
 from app.citations import Candidate
 from app.db import Repository
 from app.embeddings import Embedder
 from app.extraction import Extractor
 from app.graph_store import GraphStore
-from app.models import Chunk, IngestionEvent, IngestionResult, Obligation, Page, RejectedObligation
+from app.knowledge import KnowledgeBase
+from app.models import (Assessment, Chunk, IngestionEvent, IngestionResult, Obligation, Page,
+                        RejectedObligation)
 from app.storage import ObjectStore
 
 logger = logging.getLogger(__name__)
@@ -29,6 +32,11 @@ class Dependencies:
     repository: Repository | None  # None runs the pipeline without persisting (CLI, tests)
     graph: GraphStore | None
     chunk_max_chars: int = 1500
+    # Day 2. Without a knowledge base and assessor the workflow stops at extraction.
+    knowledge: KnowledgeBase | None = None
+    assessor: Assessor | None = None
+    policy_top_k: int = 4
+    control_top_k: int = 3
 
 
 class State(TypedDict, total=False):
@@ -39,15 +47,15 @@ class State(TypedDict, total=False):
     candidates: list[Candidate]
     obligations: list[Obligation]
     rejected: list[RejectedObligation]
+    roles: list[str]
+    assessments: list[Assessment]
     result: IngestionResult
+    review_status: str
 
 
 def build_workflow(deps: Dependencies):
-    """Phase 2 graph: load -> parse -> clauses -> obligations -> citations -> index -> persist.
-
-    The Day 2 nodes from PLAN.md (retrieve_internal_evidence through
-    await_human_review) attach after persist_results.
-    """
+    """The LangGraph workflow from PLAN.md, one node per step, run in sequence for one document."""
+    mapping = deps.knowledge is not None and deps.assessor is not None
 
     def load_document(state: State) -> State:
         event = state["event"]
@@ -83,12 +91,50 @@ def build_workflow(deps: Dependencies):
         return {"chunks": [chunk.model_copy(update={"embedding": vector})
                            for chunk, vector in zip(chunks, vectors, strict=True)]}
 
+    def retrieve_internal_evidence(state: State) -> State:
+        obligations = state["obligations"]
+        if not mapping or not obligations:
+            return {"assessments": [], "roles": []}
+        vectors = deps.embedder.embed(
+            [f"{item.summary}\n{item.required_action}\n{item.citation.quoted_text}" for item in obligations])
+        return {
+            "roles": deps.knowledge.roles(),
+            "assessments": [
+                Assessment(obligation_id=item.obligation_id,
+                           policies=deps.knowledge.search_policies(vector, deps.policy_top_k),
+                           controls=deps.knowledge.search_controls(vector, deps.control_top_k))
+                for item, vector in zip(obligations, vectors, strict=True)],
+        }
+
+    def map_policies_and_controls(state: State) -> State:
+        obligations = {item.obligation_id: item for item in state["obligations"]}
+        return {"assessments": [
+            deps.assessor.assess(obligations[item.obligation_id], item.policies, item.controls)
+            for item in state["assessments"]]}
+
+    def check_role_coverage(state: State) -> State:
+        return {"assessments": [assessment.check_role_coverage(item, state["roles"])
+                                for item in state["assessments"]]}
+
+    def assess_gap(state: State) -> State:
+        return {"assessments": [assessment.assess_gap(item) for item in state["assessments"]]}
+
+    def draft_recommendation(state: State) -> State:
+        obligations = {item.obligation_id: item for item in state["obligations"]}
+        drafted = []
+        for item in state["assessments"]:
+            if item.finding_type is not None:
+                item = item.model_copy(update={"recommendation": deps.assessor.draft(
+                    obligations[item.obligation_id], item, state["roles"])})
+            drafted.append(item)
+        return {"assessments": drafted}
+
     def persist_results(state: State) -> State:
         event = state["event"]
         result = IngestionResult(
             document_id=event.document_id, document_version_id=event.document_version_id,
             page_count=len(state["pages"]), chunks=state["chunks"],
-            obligations=state["obligations"], rejected=state["rejected"])
+            obligations=state["obligations"], rejected=state["rejected"], assessments=state["assessments"])
         # Neo4j first: its writes are idempotent, and PostgreSQL marks the event
         # completed in the same transaction as the results. A failure in either
         # store leaves the event retryable with nothing reported as completed.
@@ -98,8 +144,16 @@ def build_workflow(deps: Dependencies):
             deps.repository.save_result(event, result)
         return {"result": result}
 
-    nodes = [load_document, parse_pages, detect_clauses, extract_obligations,
-             validate_citations, index_regulatory_content, persist_results]
+    def await_human_review(state: State) -> State:
+        # Findings are stored as PENDING_REVIEW. The accept, edit and reject steps
+        # belong to the review API in the Spring backend, so the graph ends here.
+        pending = sum(1 for item in state["assessments"] if item.finding_type is not None)
+        logger.info("%s finding(s) await human review", pending)
+        return {"review_status": "PENDING_REVIEW" if pending else "NO_FINDINGS"}
+
+    nodes = [load_document, parse_pages, detect_clauses, extract_obligations, validate_citations,
+             index_regulatory_content, retrieve_internal_evidence, map_policies_and_controls,
+             check_role_coverage, assess_gap, draft_recommendation, persist_results, await_human_review]
     graph = StateGraph(State)
     for node in nodes:
         graph.add_node(node.__name__, node)
