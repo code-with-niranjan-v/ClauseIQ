@@ -164,6 +164,9 @@ services:
 
   clauseiq-frontend:
     build: ./clauseiq-frontend
+    depends_on:
+      clauseiq-backend:
+        condition: service_healthy
     ports:
       - "127.0.0.1:${FRONTEND_PORT:-5173}:80"
     healthcheck:
