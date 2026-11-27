@@ -1,55 +1,40 @@
-async function request(path, options) {
-  let response
-  try {
-    response = await fetch(path, options)
-  } catch {
-    throw new Error('The backend is not reachable.')
-  }
-  const text = await response.text()
-  let body
-  try {
-    body = text ? JSON.parse(text) : null
-  } catch {
-    body = null
-  }
-  if (!response.ok) {
-    throw new Error(body?.message || `The request failed with HTTP ${response.status}.`)
-  }
-  return body
-}
+﻿import axios from 'axios'
 
-function post(path, body) {
-  return request(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body ?? {}),
-  })
-}
+const http = axios.create({ baseURL: '/api' })
+
+http.interceptors.response.use(
+  (response) => response.data,
+  (error) => Promise.reject(new Error(
+    error.response?.data?.message || (error.response
+      ? `The request failed with HTTP ${error.response.status}.`
+      : 'The backend is not reachable.'),
+  )),
+)
+
+const source = '/admin/sources'
+const processing = '/admin/processing'
+const finding = (id) => `/findings/${encodeURIComponent(id)}`
 
 export const api = {
-  summary: () => request('/api/summary'),
-  sources: () => request('/api/admin/sources'),
-  scan: (id) => post(`/api/admin/sources/${encodeURIComponent(id)}/scan`),
-  processing: () => request('/api/admin/processing'),
-  queue: () => request('/api/admin/sources/queue-entries'),
-  setPaused: (paused) => request('/api/admin/processing', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ paused }),
-  }),
-  clearQueue: () => post('/api/admin/processing/clear'),
+  summary: () => http.get('/summary'),
+  sources: () => http.get(source),
+  scan: (id) => http.post(`${source}/${encodeURIComponent(id)}/scan`, {}),
+  processing: () => http.get(processing),
+  queue: () => http.get(`${source}/queue-entries`),
+  setPaused: (paused) => http.put(processing, { paused }),
+  clearQueue: () => http.post(`${processing}/clear`, {}),
   uploadPdf: (file, clearedBefore) => {
     const body = new FormData()
     body.append('file', file)
     if (clearedBefore) body.append('clearedBefore', clearedBefore)
-    return request('/api/admin/sources/upload-pdf', { method: 'POST', body })
+    return http.post(`${source}/upload-pdf`, body)
   },
-  documents: () => request('/api/documents'),
-  obligations: () => request('/api/obligations'),
-  findings: () => request('/api/findings'),
-  finding: (id) => request(`/api/findings/${id}`),
-  roles: () => request('/api/roles'),
-  approve: (id, body) => post(`/api/findings/${id}/approve`, body),
-  editAndApprove: (id, body) => post(`/api/findings/${id}/edit-and-approve`, body),
-  reject: (id, body) => post(`/api/findings/${id}/reject`, body),
+  documents: () => http.get('/documents'),
+  obligations: () => http.get('/obligations'),
+  findings: () => http.get('/findings'),
+  finding: (id) => http.get(finding(id)),
+  roles: () => http.get('/roles'),
+  approve: (id, body) => http.post(`${finding(id)}/approve`, body),
+  editAndApprove: (id, body) => http.post(`${finding(id)}/edit-and-approve`, body),
+  reject: (id, body) => http.post(`${finding(id)}/reject`, body),
 }
