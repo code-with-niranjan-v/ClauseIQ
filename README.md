@@ -1,4 +1,4 @@
-# ClauseIQ
+﻿# ClauseIQ
 
 From the repository root, copy `.env.example` to `.env` and fill in `OPENAI_API_KEY`. The template already includes sample credentials for local PostgreSQL, Neo4j, and MinIO. Compose passes the API key only to the ingestion worker, and Git ignores the root `.env`.
 
@@ -10,7 +10,8 @@ docker compose up --build -d --wait
 
 | Service | Default local URL |
 | --- | --- |
-| Frontend | http://localhost:5173/test |
+| RegDesk workbench | http://localhost:5173/workbench |
+| Pipeline testing dashboard | http://localhost:5173/test |
 | Backend health | http://localhost:8080/actuator/health |
 | Scanner health | http://localhost:8081/actuator/health |
 | Ingestion health and consumer status | http://localhost:8000/health |

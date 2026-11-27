@@ -1,27 +1,30 @@
-# ClauseIQ frontend
+﻿# RegDesk workbench
 
-One page that shows the whole pipeline, top to bottom, and refreshes every 10 seconds:
+RegDesk is the React frontend for ClauseIQ. Open `http://localhost:5173/workbench` for RegDesk or `http://localhost:5173/test` for the original pipeline testing dashboard. The overview, regulator watcher, PDF upload, findings, recommendations, and review history use live data through the Axios client in `src/api.js`. Vite and nginx both forward same-origin `/api` requests to the Spring Boot backend.
 
-1. Scan regulator sources, with a "Scan now" button per source.
-2. Read each circular, with its processing status.
-3. Extract obligations, each with its quoted source text, page and clause.
-4. Compare with policies and controls, with the coverage status and the reason.
-5. Review findings. Open a finding to see the evidence and the drafted fix, then approve, edit or reject it.
+The workbench supports finding approval, editing and rejection, audit CSV export, and ingestion queue controls. The cited document pane shows the exact quote returned by the backend. Policy Q&A, schema discovery, and task delivery are visible and marked unavailable until there are backend endpoints for them.
 
-"Show only this" on a circular limits stages 3 to 5 to that circular.
+## Frontend layout
 
-## Run
+- `src/App.jsx` contains the pipeline testing dashboard.
+- `src/regdesk/RegDesk.jsx` contains the RegDesk layout and navigation.
+- `src/regdesk/pages/` contains the seven RegDesk screens. Each screen has a direct URL under `/workbench`.
+- `src/api.js` is the shared Axios client.
 
-The page calls `/api` on its own origin. In development, Vite forwards those calls to the backend.
+## Run locally
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173/test`. The backend is expected at `http://localhost:8080`. To use another address, set `VITE_BACKEND_URL` before `npm run dev`.
+The frontend expects the backend at `http://localhost:8080`. Set `VITE_BACKEND_URL` before starting Vite to change it.
 
-With Docker, the root `compose.yaml` serves the built page on `http://localhost:5173/test` through nginx, which forwards `/api` to the backend.
+From the repository root, rebuild only the frontend in a running Compose stack with:
+
+```sh
+docker compose up --build --no-deps -d --wait clauseiq-frontend
+```
 
 ## Checks
 
