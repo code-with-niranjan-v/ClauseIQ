@@ -1,16 +1,31 @@
-# React + Vite
+# ClauseIQ frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+One page that shows the whole pipeline, top to bottom, and refreshes every 10 seconds:
 
-Currently, two official plugins are available:
+1. Scan regulator sources, with a "Scan now" button per source.
+2. Read each circular, with its processing status.
+3. Extract obligations, each with its quoted source text, page and clause.
+4. Compare with policies and controls, with the coverage status and the reason.
+5. Review findings. Open a finding to see the evidence and the drafted fix, then approve, edit or reject it.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+"Show only this" on a circular limits stages 3 to 5 to that circular.
 
-## React Compiler
+## Run
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The page calls `/api` on its own origin. In development, Vite forwards those calls to the backend.
 
-## Expanding the ESLint configuration
+```sh
+npm ci
+npm run dev
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Open `http://localhost:5173`. The backend is expected at `http://localhost:8080`. To use another address, set `VITE_BACKEND_URL` before `npm run dev`.
+
+With Docker, the root `compose.yaml` serves the built page on `http://localhost:5173` through nginx, which forwards `/api` to the backend.
+
+## Checks
+
+```sh
+npm run lint
+npm run build
+```
