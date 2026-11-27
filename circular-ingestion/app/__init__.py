@@ -1,0 +1,1 @@
+"""Circular document ingestion worker."""

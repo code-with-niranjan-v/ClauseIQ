@@ -1,0 +1,13 @@
+package com.example.circular_scanner;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+
+@SpringBootTest
+class CircularScannerApplicationTests {
+
+	@Test
+	void contextLoads() {
+	}
+
+}
