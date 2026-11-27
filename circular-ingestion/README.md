@@ -185,7 +185,7 @@ The database tests run only when `TEST_DATABASE_URL` points at a disposable Post
 
 ## Limitations
 
-- Scanned PDFs have no text layer and fail with `PdfError`. OCR is out of scope.
+- Pages without native text use local Tesseract OCR with English and Hindi language data. The Docker image includes both. For a local Python run, install Tesseract and both language packs. Citations on scanned pages use the recognized text, so check them against the scan.
 - Clause detection covers numbered clauses (`4`, `4.2`, `Clause 4.2`) and bracketed items (`(a)`, `(iv)`). Tables and multi-column layouts are not handled.
 - A large circular means many OpenAI calls, made one after another.
 - SRS and SRE comparison, the employee chatbot and the sensitive-field scanner are not part of this worker yet.

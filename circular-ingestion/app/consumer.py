@@ -63,9 +63,15 @@ class DocumentConsumer:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
+        self._repository = PostgresRepository(settings.database_url, settings.embedding_dimensions)
         self._consumer: AIOKafkaConsumer | None = None
         self._producer: AIOKafkaProducer | None = None
         self._task: asyncio.Task | None = None
+        self._resumed = asyncio.Event()
+        self._resumed.set()
+        self._processing = False
+        self._clearing = False
+        self._cleared_before: datetime | None = None
         self.state = "STOPPED"
         self.processed = 0
         self.dead_lettered = 0
@@ -95,11 +101,16 @@ class DocumentConsumer:
     async def _run(self) -> None:
         """Connect and consume. Reconnects after infrastructure failures so the health API stays up."""
         while True:
+            await self._resumed.wait()
             try:
                 processor = await asyncio.to_thread(self._build_processor)
+                cutoff = await asyncio.to_thread(self._repository.queue_cutoff)
+                if cutoff and (self._cleared_before is None or cutoff > self._cleared_before):
+                    self._cleared_before = cutoff
                 await self._connect()
                 self.state = "RUNNING"
                 await self._consume(processor)
+                await self._close()
             except asyncio.CancelledError:
                 raise
             except Exception as failure:
@@ -113,7 +124,7 @@ class DocumentConsumer:
         settings = self._settings
         embedder = build_embedder(settings)
         model = build_chat_model(settings)
-        repository = PostgresRepository(settings.database_url, settings.embedding_dimensions)
+        repository = self._repository
         repository.ensure_schema()
         graph = build_graph_store(settings)
         if hasattr(graph, "ensure_schema"):
@@ -150,24 +161,65 @@ class DocumentConsumer:
 
     async def _consume(self, processor: EventProcessor) -> None:
         assert self._consumer is not None
-        while True:
-            message = await self._consumer.getone()
+        while self._resumed.is_set():
             try:
-                event = IngestionEvent.model_validate(json.loads(message.value))
-            except (ValueError, ValidationError) as failure:
-                # A malformed payload can never succeed, so it is not retried.
-                await self._dead_letter(message, None, f"Invalid event: {failure}")
-                await self._consumer.commit()
+                message = await asyncio.wait_for(self._consumer.getone(), timeout=1)
+            except asyncio.TimeoutError:
                 continue
-            self.last_event_id = event.event_id
-            # Database or Kafka outages raise here and leave the offset uncommitted, so the event is redelivered.
-            outcome = await asyncio.to_thread(processor.process, event)
-            if outcome == "DEAD_LETTERED":
-                self.last_error = processor.last_error
-                await self._dead_letter(message, event, processor.last_error)
-            elif outcome == "COMPLETED":
-                self.processed += 1
+            if not self._resumed.is_set():
+                # Leave the offset uncommitted so Kafka redelivers on resume.
+                return
+            self._processing = True
+            try:
+                await self._process_message(processor, message)
+            finally:
+                self._processing = False
+
+    async def _process_message(self, processor: EventProcessor, message) -> None:
+        assert self._consumer is not None
+        try:
+            event = IngestionEvent.model_validate(json.loads(message.value))
+        except (ValueError, ValidationError) as failure:
+            # A malformed payload can never succeed, so it is not retried.
+            await self._dead_letter(message, None, f"Invalid event: {failure}")
             await self._consumer.commit()
+            return
+        queued_at = event.created_at
+        if queued_at is None and getattr(message, "timestamp", -1) >= 0:
+            queued_at = datetime.fromtimestamp(message.timestamp / 1000, timezone.utc)
+        if queued_at and queued_at.tzinfo is None:
+            queued_at = queued_at.replace(tzinfo=timezone.utc)
+        if self._cleared_before and queued_at and queued_at <= self._cleared_before:
+            await self._consumer.commit()
+            return
+        self.last_event_id = event.event_id
+        # Database or Kafka outages raise here and leave the offset uncommitted, so the event is redelivered.
+        outcome = await asyncio.to_thread(processor.process, event)
+        if outcome == "DEAD_LETTERED":
+            self.last_error = processor.last_error
+            await self._dead_letter(message, event, processor.last_error)
+        elif outcome == "COMPLETED":
+            self.processed += 1
+        await self._consumer.commit()
+
+    def set_paused(self, paused: bool) -> bool:
+        if self._clearing:
+            return False
+        if paused:
+            self._resumed.clear()
+        else:
+            self._resumed.set()
+        return True
+
+    async def clear_queue(self) -> bool:
+        if not self.set_paused(True):
+            return False
+        self._clearing = True
+        try:
+            self._cleared_before = await asyncio.to_thread(self._repository.clear_queue)
+            return True
+        finally:
+            self._clearing = False
 
     async def _dead_letter(self, message, event: IngestionEvent | None, error: str) -> None:
         assert self._producer is not None
@@ -187,5 +239,8 @@ class DocumentConsumer:
         self.dead_lettered += 1
 
     def status(self) -> dict:
-        return {"state": self.state, "processed": self.processed, "deadLettered": self.dead_lettered,
+        paused = not self._resumed.is_set()
+        state = ("PAUSING" if self._processing else "PAUSED") if paused else self.state
+        return {"state": state, "paused": paused, "clearedBefore": self._cleared_before,
+                "processed": self.processed, "deadLettered": self.dead_lettered,
                 "lastEventId": self.last_event_id, "lastError": self.last_error}

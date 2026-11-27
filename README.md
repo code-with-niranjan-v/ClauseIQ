@@ -20,6 +20,16 @@ The frontend shows scanner status, ingested circulars, cited obligations, policy
 
 Use `docker compose logs -f circular-ingestion` to see ingestion startup and processing. Check its health response for the consumer state. A healthy HTTP process can still be reconnecting to a dependency or waiting for a valid OpenAI key. Stop the stack with `docker compose down`.
 
+## Import a circular downloaded in your browser
+
+If the RBI download host sends the scanner an HTML page, open the circular URL in your browser and save the PDF. Pass its original RBI PDF URL, title, and local file to the scanner:
+
+```powershell
+curl.exe --fail-with-body -F "url=$pdfUrl" -F "title=$title" -F "file=@$pdfPath" http://127.0.0.1:8081/api/admin/sources/rbi/import-pdf
+```
+
+Set `$pdfUrl`, `$title`, and `$pdfPath` to your circular's values before running the command. A response of `{"added":true}` means the PDF was stored and queued for ingestion. The dashboard lists the circular once the worker receives the event. The source row continues to report the last automatic or manual scan.
+
 ## If Neo4j fails to start
 
 Run `docker compose ps neo4j` and `docker compose logs --tail=100 neo4j` to see why. If Docker reports a port conflict, set free values for `NEO4J_HTTP_PORT` and `NEO4J_BOLT_PORT` in the root `.env`. These change the host ports. The ingestion worker still uses `neo4j:7687` inside Compose.

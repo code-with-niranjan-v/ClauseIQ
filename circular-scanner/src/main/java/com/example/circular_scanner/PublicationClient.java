@@ -23,9 +23,14 @@ class PublicationClient {
     record Candidate(URI uri, String title) {}
     record Discovery(List<Candidate> candidates, int pageFailures) {}
     record Response(URI uri, byte[] bytes) {}
+    static class InvalidPdfResponse extends IOException {
+        InvalidPdfResponse() {
+            super("Document response did not start with a PDF header");
+        }
+    }
 
     private static final int MAX_HTML = 4 * 1024 * 1024;
-    private static final int MAX_PDF = 30 * 1024 * 1024;
+    static final int MAX_PDF = 30 * 1024 * 1024;
     private static final int MAX_DETAIL_PAGES = 40;
     private static final int MAX_DOCUMENTS = 100;
     private static final Pattern PDF_URL = Pattern.compile("(?i)[.]pdf(?:$|[/?#& ])");
@@ -70,12 +75,12 @@ class PublicationClient {
     byte[] download(ScannerRepository.Source source, Candidate candidate) throws IOException, InterruptedException {
         byte[] bytes = fetch(candidate.uri(), hosts(source), MAX_PDF).bytes();
         if (!isPdfBody(bytes)) {
-            throw new IOException("Document response did not start with a PDF header");
+            throw new InvalidPdfResponse();
         }
         return bytes;
     }
 
-    private static boolean isPdfBody(byte[] bytes) {
+    static boolean isPdfBody(byte[] bytes) {
         return bytes.length >= PDF_HEADER.length && Arrays.mismatch(bytes, 0, PDF_HEADER.length,
                 PDF_HEADER, 0, PDF_HEADER.length) == -1;
     }
@@ -120,6 +125,10 @@ class PublicationClient {
     private static Set<String> hosts(ScannerRepository.Source source) {
         return Arrays.stream(source.allowedHosts().split(",")).map(String::strip)
                 .map(host -> host.toLowerCase(Locale.ROOT)).collect(Collectors.toUnmodifiableSet());
+    }
+
+    static boolean isAllowedPdf(ScannerRepository.Source source, URI uri) {
+        return allowed(uri, hosts(source)) && isPdf(uri);
     }
 
     private static boolean allowed(URI uri, Set<String> hosts) {

@@ -2,8 +2,10 @@ package com.example.circular_scanner;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.time.OffsetDateTime;
 import java.util.HexFormat;
 import java.util.Set;
 import java.util.UUID;
@@ -49,9 +51,42 @@ class ScanService {
     }
 
     ScannerRepository.Source scan(ScannerRepository.Source source) throws SQLException {
+        requireEnabled(source);
+        return withSourceLock(source, () -> {
+            run(source);
+            return repository.source(source.id()).orElseThrow();
+        });
+    }
+
+    boolean importPdf(ScannerRepository.Source source, PublicationClient.Candidate candidate, byte[] pdf)
+            throws SQLException {
+        requireEnabled(source);
+        return withSourceLock(source, () -> ingest(source, candidate, pdf));
+    }
+
+    boolean uploadPdf(ScannerRepository.Source source, String title, byte[] pdf, OffsetDateTime clearedBefore)
+            throws SQLException {
+        return withSourceLock(source, () -> {
+            String hash = checksum(pdf);
+            if (clearedBefore != null && repository.requeueUpload(source.id(), hash, clearedBefore)) {
+                return true;
+            }
+            return ingest(source, new PublicationClient.Candidate(null, title), pdf, hash);
+        });
+    }
+
+    @FunctionalInterface
+    private interface SourceOperation<T> {
+        T run() throws SQLException;
+    }
+
+    private static void requireEnabled(ScannerRepository.Source source) {
         if (!source.enabled()) {
             throw new Disabled();
         }
+    }
+
+    private <T> T withSourceLock(ScannerRepository.Source source, SourceOperation<T> operation) throws SQLException {
         if (!active.add(source.id())) {
             throw new AlreadyRunning();
         }
@@ -60,8 +95,7 @@ class ScanService {
                 throw new AlreadyRunning();
             }
             try {
-                run(source);
-                return repository.source(source.id()).orElseThrow();
+                return operation.run();
             } finally {
                 try (var statement = lock.prepareStatement("SELECT pg_advisory_unlock(921774, hashtext(?))")) {
                     statement.setString(1, source.id());
@@ -99,12 +133,16 @@ class ScanService {
             }
             for (var candidate : result.candidates()) {
                 try {
-                    if (ingest(source, candidate)) {
+                    if (ingest(source, candidate, publications.download(source, candidate))) {
                         added++;
                     }
                     processed++;
                 } catch (InterruptedException e) {
                     throw e;
+                } catch (PublicationClient.InvalidPdfResponse e) {
+                    error = "A download URL returned a response without a PDF header. "
+                            + "If it opens in your browser, download the PDF and use the manual import command in the README.";
+                    log.warn("Could not process a PDF for {} from {}: {}", source.id(), candidate.uri(), e.getMessage());
                 } catch (Exception e) {
                     error = "Could not process one or more PDFs. See scanner logs.";
                     log.warn("Could not process a PDF for {} from {}", source.id(), candidate.uri(), e);
@@ -121,18 +159,32 @@ class ScanService {
         repository.finished(source.id(), status, error, discovered, added);
     }
 
-    private boolean ingest(ScannerRepository.Source source, PublicationClient.Candidate candidate) throws Exception {
-        byte[] pdf = publications.download(source, candidate);
-        String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(pdf));
+    private boolean ingest(ScannerRepository.Source source, PublicationClient.Candidate candidate, byte[] pdf) {
+        return ingest(source, candidate, pdf, checksum(pdf));
+    }
+
+    private static String checksum(byte[] pdf) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(pdf));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
+    }
+
+    private boolean ingest(ScannerRepository.Source source, PublicationClient.Candidate candidate, byte[] pdf, String hash) {
         if (repository.known(source.id(), hash)) {
             return false;
         }
-        String url = candidate.uri().toString();
-        UUID documentId = stableId(source.id(), url);
+        String url = candidate.uri() == null ? "" : candidate.uri().toString();
+        UUID documentId = stableId(source.id(), url.isEmpty() ? hash : url);
         UUID versionId = stableId(source.id(), hash);
         int version = repository.nextVersion(documentId);
         String key = source.regulator() + "/" + documentId + "/version-" + version + "/original.pdf";
-        store.put(key, pdf);
+        try {
+            store.put(key, pdf);
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not store circular PDF", e);
+        }
         repository.insert(versionId, documentId, version, source.id(), url, candidate.title(), hash, store.bucket(), key);
         return true;
     }

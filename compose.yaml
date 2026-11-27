@@ -119,6 +119,7 @@ services:
       SPRING_DATASOURCE_USERNAME: clauseiq
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       CLAUSEIQ_SCANNER_URL: http://circular-scanner:8080
+      CLAUSEIQ_INGESTION_URL: http://circular-ingestion:8000
       CLAUSEIQ_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:${FRONTEND_PORT:-5173},http://127.0.0.1:${FRONTEND_PORT:-5173}}
     depends_on:
       ingestion-postgres:

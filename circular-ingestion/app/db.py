@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -39,6 +40,20 @@ class PostgresRepository:
     def ping(self) -> None:
         with self._connect(vectors=False) as connection:
             connection.execute("SELECT 1")
+
+    def queue_cutoff(self) -> datetime | None:
+        with self._connect(vectors=False) as connection:
+            row = connection.execute("SELECT cleared_before FROM ingestion_queue WHERE id").fetchone()
+            return row[0] if row else None
+
+    def clear_queue(self) -> datetime:
+        with self._connect(vectors=False) as connection:
+            return connection.execute("""
+                INSERT INTO ingestion_queue (id, cleared_before) VALUES (true, clock_timestamp())
+                ON CONFLICT (id) DO UPDATE SET cleared_before =
+                    GREATEST(ingestion_queue.cleared_before, EXCLUDED.cleared_before)
+                RETURNING cleared_before
+                """).fetchone()[0]
 
     # Internal knowledge -------------------------------------------------
 

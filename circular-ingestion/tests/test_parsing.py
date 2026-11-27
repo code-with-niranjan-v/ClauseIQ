@@ -1,4 +1,8 @@
+from io import BytesIO
+from shutil import which
+
 import pytest
+from PIL import Image, ImageDraw, ImageFont
 
 from app.parsing import PdfError, chunk_pages, extract_pages
 from app.models import Page
@@ -58,3 +62,15 @@ def test_long_clause_is_split_without_losing_text():
 def test_unreadable_pdf_raises():
     with pytest.raises(PdfError):
         extract_pages(b"this is not a pdf")
+
+
+@pytest.mark.skipif(which("tesseract") is None, reason="Tesseract is not installed")
+def test_ocr_extracts_text_from_an_image_only_page():
+    with Image.new("RGB", (1600, 500), "white") as image, BytesIO() as pdf:
+        ImageDraw.Draw(image).text((80, 160), "Banks shall retain audit records.",
+                                  font=ImageFont.load_default(size=64), fill="black")
+        image.save(pdf, format="PDF", resolution=150)
+        pages = extract_pages(pdf.getvalue())
+
+    assert [page.page_number for page in pages] == [1]
+    assert "Banks shall retain audit records." in pages[0].text
