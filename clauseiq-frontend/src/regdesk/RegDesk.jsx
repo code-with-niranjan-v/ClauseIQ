@@ -10,6 +10,7 @@ import GapsAndMapping from './pages/GapsAndMapping.jsx'
 import ActionPlan from './pages/ActionPlan.jsx'
 import AuditTrail from './pages/AuditTrail.jsx'
 import DataDiscovery from './pages/DataDiscovery.jsx'
+import PolicyChat from './PolicyChat.jsx'
 
 const nav = [
   { name: 'Overview', path: '/workbench', icon: 'M3 3v18h18M7 14l3-3 3 2 5-6' },
@@ -29,6 +30,7 @@ export default function RegDesk() {
   const [selected, setSelected] = useState(null)
   const [filter, setFilter] = useState('All')
   const [qa, setQa] = useState(false)
+  const [chat, setChat] = useState([])
   const [dark, setDark] = useState(() => localStorage.getItem('regdesk-theme') === 'dark')
   const [revision, setRevision] = useState(0)
   const { data, error, refresh } = useCatalog()
@@ -105,8 +107,7 @@ export default function RegDesk() {
         <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" /></svg><span className="nav-label">Policy Q&amp;A</span></button></nav>
     <main key={page}><div className="pg">{(error || (page !== 2 && detailError)) && <p className="workbench-empty" role="status">{error || detailError}</p>}{screen}</div></main>
   </div>{qa && <aside className="slide" aria-label="Policy Q&A"><div className="sh">Policy Q&A <span>approved policies only</span>
-    <button autoFocus className="btn r" onClick={() => setQa(false)}>Close <kbd>Esc</kbd></button></div>
-    <div className="chat"><p className="m b">Policy Q&A is unavailable. The backend has no approved-policy question endpoint.</p></div>
-    <div className="qa-input"><input className="f" aria-label="Policy question" placeholder="Ask a policy question" disabled /><button className="btn p" disabled>Ask</button></div>
+    <button className="btn r" onClick={() => setQa(false)}>Close <kbd>Esc</kbd></button></div>
+    <PolicyChat messages={chat} setMessages={setChat} />
   </aside>}</div>
 }

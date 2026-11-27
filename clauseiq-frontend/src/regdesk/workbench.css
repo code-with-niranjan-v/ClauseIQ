@@ -263,3 +263,13 @@ button.li.on::before { width: 4px; }
   .review-heading { padding-block: 16px; }
   .paper .hit { font-size: 17px; }
 }
+/* policy Q&A */
+.chat .m p{margin:0}.chat .m p+p{margin-top:6px}
+.qa-examples{display:flex;flex-direction:column;align-items:flex-start;gap:6px}.qa-examples .btn{height:auto;min-height:26px;padding:4px 10px;text-align:left;font-weight:500}
+.qa-domain{font:600 10.5px 'JetBrains Mono';color:var(--ink3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.qa-label{font-weight:600;font-size:11px;color:var(--ink3);margin:8px 0 3px}
+.qa-list{margin:0;padding-left:16px}.qa-list li{margin:2px 0}
+.qa-cites{list-style:none;padding:0}.qa-cite{border-left:3px solid var(--ok);background:var(--pn);padding:5px 8px;margin:4px 0}
+.qa-cite q{display:block;color:var(--ink2);font-size:11.5px;margin-top:2px}.qa-cite small{display:block;color:var(--ink3);margin-top:3px}
+.qa-warn{margin-top:8px!important;border-left:3px solid var(--m);padding:4px 8px;background:var(--pn)}
+.m.qa-refused{border-left:3px solid var(--ink3)}

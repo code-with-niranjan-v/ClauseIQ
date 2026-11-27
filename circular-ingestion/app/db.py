@@ -1,3 +1,4 @@
+import hashlib
 import json
 import uuid
 from datetime import datetime
@@ -7,6 +8,7 @@ from typing import Protocol
 import psycopg
 from pgvector.psycopg import register_vector
 
+from app.chat import ApprovedSource
 from app.embeddings import Embedder
 from app.knowledge import CONTROL_DOCUMENT_ID, POLICY_DOCUMENT_ID, Knowledge, control_text
 from app.models import ControlEvidence, IngestionEvent, IngestionResult, PolicyEvidence
@@ -110,14 +112,19 @@ class PostgresRepository:
                    for item, vector in zip(knowledge.controls, control_vectors, strict=True)])
             return True
 
+    # The policy and control sets are small, but circular chunks keep growing. Filtering in a
+    # MATERIALIZED CTE ranks every matching chunk exactly. Ordering the whole table would use the
+    # HNSW index, which returns the nearest chunks of any type and can leave fewer than `limit` after the filter.
+
     def search_policies(self, embedding: list[float], limit: int) -> list[PolicyEvidence]:
         with self._connect() as connection:
             rows = connection.execute(
                 """
+                WITH approved AS MATERIALIZED (
+                    SELECT id, document_id, section_number, heading, content, embedding FROM document_chunk
+                    WHERE document_type = 'POLICY' AND approval_status = 'APPROVED' AND embedding IS NOT NULL)
                 SELECT id, document_id, section_number, heading, content, 1 - (embedding <=> %(query)s)
-                FROM document_chunk
-                WHERE document_type = 'POLICY' AND approval_status = 'APPROVED'
-                ORDER BY embedding <=> %(query)s LIMIT %(limit)s
+                FROM approved ORDER BY embedding <=> %(query)s LIMIT %(limit)s
                 """,
                 {"query": _vector(embedding), "limit": limit}).fetchall()
         return [PolicyEvidence(chunk_id=str(row[0]), document_id=row[1], section_number=row[2], heading=row[3],
@@ -127,15 +134,80 @@ class PostgresRepository:
         with self._connect() as connection:
             rows = connection.execute(
                 """
+                WITH approved AS MATERIALIZED (
+                    SELECT section_number, embedding FROM document_chunk
+                    WHERE document_type = 'CONTROL' AND approval_status = 'APPROVED' AND embedding IS NOT NULL)
                 SELECT c.id, c.name, c.description, c.owner_role, c.frequency, c.policy_section,
                        1 - (k.embedding <=> %(query)s)
-                FROM document_chunk k JOIN control c ON c.id = k.section_number
-                WHERE k.document_type = 'CONTROL' AND k.approval_status = 'APPROVED'
+                FROM approved k JOIN control c ON c.id = k.section_number
                 ORDER BY k.embedding <=> %(query)s LIMIT %(limit)s
                 """,
                 {"query": _vector(embedding), "limit": limit}).fetchall()
         return [ControlEvidence(control_id=row[0], name=row[1], description=row[2], owner_role=row[3],
                                 frequency=row[4], policy_section=row[5], similarity=float(row[6])) for row in rows]
+
+    def sync_policy_updates(self, embedder: Embedder) -> int:
+        """Index the policy wording of approved findings as POLICY_UPDATE chunks. Returns how many were added.
+
+        A chunk id covers the finding and its current wording, so an edit replaces the old chunk.
+        Findings that are no longer approved lose their chunk.
+        """
+        with self._connect() as connection, connection.cursor() as cursor:
+            rows = cursor.execute(
+                """
+                SELECT f.id::text, f.title, f.policy_section, r.draft_policy_text,
+                       d.title, d.regulator, d.source_url, f.document_version_id, cit.page_number, cit.clause_number
+                FROM finding f
+                JOIN recommendation r ON r.finding_id = f.id
+                JOIN regulatory_document d ON d.id = f.document_id
+                LEFT JOIN LATERAL (SELECT page_number, clause_number FROM citation
+                                   WHERE obligation_id = f.obligation_id LIMIT 1) cit ON true
+                WHERE f.status IN ('APPROVED', 'APPROVED_WITH_CHANGES') AND btrim(r.draft_policy_text) <> ''
+                """).fetchall()
+            wanted = {
+                _uuid("policy-update", row[0], hashlib.sha256(row[3].encode()).hexdigest()): row for row in rows}
+            existing = {str(row[0]) for row in cursor.execute(
+                "SELECT id FROM document_chunk WHERE document_type = 'POLICY_UPDATE'").fetchall()}
+            stale = existing - wanted.keys()
+            if stale:
+                cursor.execute("DELETE FROM document_chunk WHERE id = ANY(%s::uuid[])", (list(stale),))
+            missing = [(key, row) for key, row in wanted.items() if key not in existing]
+            if not missing:
+                return 0
+            vectors = embedder.embed([f"{row[1]}\n{row[3]}" for _, row in missing])
+            cursor.executemany(
+                """
+                INSERT INTO document_chunk
+                    (id, document_id, document_version_id, document_type, page_number, section_number, clause_number,
+                     heading, content, embedding, metadata, approval_status)
+                VALUES (%s, %s, %s, 'POLICY_UPDATE', %s, %s, %s, %s, %s, %s, %s, 'APPROVED')
+                ON CONFLICT (id) DO NOTHING
+                """,
+                [(key, f"policy-update:{row[0]}", row[7], row[8], row[2], row[9], row[1], row[3], _vector(vector),
+                  json.dumps({"findingId": row[0], "circularTitle": row[4], "regulator": row[5],
+                              "sourceUrl": row[6]}))
+                 for (key, row), vector in zip(missing, vectors, strict=True)])
+            return len(missing)
+
+    def search_approved(self, embedding: list[float], limit: int) -> list[ApprovedSource]:
+        """Approved policy text only: handbook sections and approved policy updates. Never drafts or circulars."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                WITH approved AS MATERIALIZED (
+                    SELECT id, document_type, section_number, heading, content, metadata, embedding
+                    FROM document_chunk
+                    WHERE document_type IN ('POLICY', 'POLICY_UPDATE') AND approval_status = 'APPROVED'
+                      AND embedding IS NOT NULL)
+                SELECT id, document_type, section_number, heading, content, metadata, 1 - (embedding <=> %(query)s)
+                FROM approved ORDER BY embedding <=> %(query)s LIMIT %(limit)s
+                """,
+                {"query": _vector(embedding), "limit": limit}).fetchall()
+        return [ApprovedSource(
+            chunk_id=str(row[0]), source_type=row[1], section_number=row[2], heading=row[3], content=row[4],
+            similarity=float(row[6]), circular_title=(row[5] or {}).get("circularTitle"),
+            regulator=(row[5] or {}).get("regulator"), source_url=(row[5] or {}).get("sourceUrl"))
+            for row in rows]
 
     def roles(self) -> list[str]:
         with self._connect(vectors=False) as connection:

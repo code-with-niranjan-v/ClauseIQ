@@ -1,6 +1,12 @@
 services:
   circular-scanner:
     build: ./circular-scanner
+    init: true
+    # www.sebi.gov.in fails to resolve through some resolvers (SERVFAIL from Google DNS, timeouts
+    # from Docker Desktop's default). Override with SCANNER_DNS_PRIMARY/SECONDARY if outbound DNS is restricted.
+    dns:
+      - ${SCANNER_DNS_PRIMARY:-1.1.1.1}
+      - ${SCANNER_DNS_SECONDARY:-9.9.9.9}
     ports:
       - "127.0.0.1:${SCANNER_PORT:-8081}:8080"
     environment:
@@ -95,6 +101,8 @@ services:
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
       EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
+      CHAT_MIN_SIMILARITY: ${CHAT_MIN_SIMILARITY:-0.3}
+      CHAT_TOP_K: ${CHAT_TOP_K:-5}
     depends_on:
       ingestion-postgres:
         condition: service_healthy
