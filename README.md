@@ -1,6 +1,6 @@
 # ClauseIQ
 
-From the repository root, copy `.env.example` to `.env` and fill in all five required values. Put your OpenAI API key in `OPENAI_API_KEY`. Compose passes it to the ingestion worker. Use a long alphanumeric PostgreSQL password and passwords of at least eight characters for Neo4j and MinIO. The root `.env` is ignored by Git.
+From the repository root, copy `.env.example` to `.env` and fill in `OPENAI_API_KEY`. The template already includes sample credentials for local PostgreSQL, Neo4j, and MinIO. Compose passes the API key only to the ingestion worker, and Git ignores the root `.env`.
 
 Start the complete stack with one command:
 
