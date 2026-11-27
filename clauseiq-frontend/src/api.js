@@ -38,4 +38,7 @@ export const api = {
   editAndApprove: (id, body) => http.post(`${finding(id)}/edit-and-approve`, body),
   reject: (id, body) => http.post(`${finding(id)}/reject`, body),
   ask: (question) => http.post('/chat', { question }),
+  systemAssessments: () => http.get('/system-assessments'),
+  systemAssessment: (id) => http.get(`/system-assessments/${encodeURIComponent(id)}`),
+  createSystemAssessment: (form) => http.post('/system-assessments', form),
 }

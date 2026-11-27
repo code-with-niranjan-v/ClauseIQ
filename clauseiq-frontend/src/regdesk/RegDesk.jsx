@@ -9,7 +9,7 @@ import ReviewWorkbench from './pages/ReviewWorkbench.jsx'
 import GapsAndMapping from './pages/GapsAndMapping.jsx'
 import ActionPlan from './pages/ActionPlan.jsx'
 import AuditTrail from './pages/AuditTrail.jsx'
-import DataDiscovery from './pages/DataDiscovery.jsx'
+import SystemAssessment from './pages/SystemAssessment.jsx'
 import PolicyChat from './PolicyChat.jsx'
 
 const nav = [
@@ -19,7 +19,7 @@ const nav = [
   { name: 'Gaps & mapping', path: '/workbench/gaps', icon: 'M3 6h18M3 12h18M3 18h18M8 3v18M15 3v18' },
   { name: 'Action plan', path: '/workbench/actions', icon: 'M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2' },
   { name: 'Audit trail', path: '/workbench/audit', icon: 'M12 8v4l3 2M3 12a9 9 0 109-9 9 9 0 00-7 3.4M3 4v4h4' },
-  { name: 'Data discovery', path: '/workbench/data-discovery', icon: 'M4 6c0-4 16-4 16 0s-16 4-16 0v12c0 4 16 4 16 0V6M4 12c0 4 16 4 16 0' },
+  { name: 'System assessment', path: '/workbench/system-assessment', icon: 'M4 6c0-4 16-4 16 0s-16 4-16 0v12c0 4 16 4 16 0V6M4 12c0 4 16 4 16 0' },
 ]
 
 export default function RegDesk() {
@@ -87,7 +87,7 @@ export default function RegDesk() {
       screen = <AuditTrail audit={audit} open={open} />
       break
     case 6:
-      screen = <DataDiscovery />
+      screen = <SystemAssessment />
       break
     default:
       screen = <Overview documents={documents} obligations={obligations} findings={findings} details={details}

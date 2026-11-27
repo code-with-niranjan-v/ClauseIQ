@@ -1,8 +1,10 @@
 import logging
 import threading
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from psycopg import Error as DatabaseError
 
@@ -75,6 +77,116 @@ async def clear_processing_queue() -> dict:
         logging.exception("Could not save the ingestion queue cutoff")
         raise HTTPException(status_code=503, detail="Could not clear the processing queue") from error
     return consumer.status()
+
+
+# ---------------------------------------------------------------- system assessments
+
+MAX_ARTIFACT_BYTES = 20 * 1024 * 1024
+_assessments = ThreadPoolExecutor(max_workers=1, thread_name_prefix="system-assessment")
+_system_lock = threading.Lock()
+_system_ready = False
+
+
+def get_system_store():
+    """The store, after marking assessments that a previous process left unfinished."""
+    global _system_ready
+    from app.system_store import SystemAssessmentStore
+
+    store = SystemAssessmentStore(settings.database_url)
+    with _system_lock:
+        if not _system_ready:
+            if store.interrupt_unfinished():
+                logging.warning("Marked unfinished system assessments from a previous run as failed")
+            _system_ready = True
+    return store
+
+
+def build_system_assessor(store):
+    from app.embeddings import build_embedder
+    from app.llm import build_chat_model
+    from app.system_assessment import SystemAssessor
+
+    model = build_chat_model(settings)
+    return SystemAssessor(store, build_embedder(settings), model, model,
+                          min_similarity=settings.system_min_similarity,
+                          max_obligations=settings.system_max_obligations)
+
+
+def _content_type(data: bytes) -> str | None:
+    if data.startswith(b"%PDF-"):
+        return "application/pdf"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _run_assessment(assessment_id: str, artifacts) -> None:
+    store = get_system_store()
+    try:
+        assessor = build_system_assessor(store)
+        result = assessor.run(artifacts, progress=lambda stage: store.stage(assessment_id, stage))
+        store.save(assessment_id, artifacts, result)
+    except Exception as error:
+        logging.exception("System assessment %s failed", assessment_id)
+        from app.system_assessment import AssessmentInputError
+
+        message = str(error) if isinstance(error, (AssessmentInputError, ConfigurationError)) \
+            else f"The assessment failed: {type(error).__name__}. See the ingestion worker logs."
+        store.fail(assessment_id, message)
+
+
+@app.post("/system-assessments", status_code=202)
+async def create_system_assessment(
+        name: str = Form(""), sre: UploadFile | None = File(None), architecture: UploadFile | None = File(None),
+        er: UploadFile | None = File(None)) -> dict:
+    from app.system_assessment import Artifact
+
+    artifacts = []
+    for kind, upload in (("SRE", sre), ("ARCHITECTURE", architecture), ("ER", er)):
+        if upload is None or not upload.filename:
+            continue
+        data = await upload.read(MAX_ARTIFACT_BYTES + 1)
+        if len(data) > MAX_ARTIFACT_BYTES:
+            raise HTTPException(status_code=413, detail=f"{upload.filename} exceeds 20 MiB.")
+        content_type = _content_type(data)
+        if content_type is None:
+            raise HTTPException(status_code=400, detail=f"{upload.filename} must be a PDF, PNG, JPEG or WebP file.")
+        artifacts.append(Artifact(kind=kind, filename=upload.filename[:200], content_type=content_type, data=data))
+    if not artifacts:
+        raise HTTPException(status_code=400, detail="Upload at least one of the SRE document, architecture diagram "
+                                                    "or ER diagram.")
+    name = " ".join(name.split())[:120] or "Untitled system"
+    try:
+        store = get_system_store()
+        assessment_id = store.create(name, artifacts)
+    except DatabaseError as error:
+        logging.exception("Could not create a system assessment")
+        raise HTTPException(status_code=503, detail="The assessment store is not available.") from error
+    _assessments.submit(_run_assessment, assessment_id, artifacts)
+    return {"id": assessment_id, "status": "QUEUED"}
+
+
+@app.get("/system-assessments")
+def list_system_assessments() -> list[dict]:
+    try:
+        return get_system_store().list()
+    except DatabaseError as error:
+        raise HTTPException(status_code=503, detail="The assessment store is not available.") from error
+
+
+@app.get("/system-assessments/{assessment_id}")
+def get_system_assessment(assessment_id: uuid.UUID) -> dict:
+    try:
+        result = get_system_store().get(str(assessment_id))
+    except DatabaseError as error:
+        raise HTTPException(status_code=503, detail="The assessment store is not available.") from error
+    if result is None:
+        raise HTTPException(status_code=404, detail="Unknown system assessment.")
+    return result
 
 
 class Question(BaseModel):
