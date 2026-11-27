@@ -57,9 +57,10 @@ def extract_pages(pdf_bytes: bytes) -> list[Page]:
             pages = []
             for page in pdf.pages:
                 text = page.extract_text() or ""
-                if not text.strip():
+                ocr = not text.strip()
+                if ocr:
                     text = _recognize_page(page)
-                pages.append(Page(page_number=page.page_number, text=text))
+                pages.append(Page(page_number=page.page_number, text=text, ocr=ocr))
     except PdfError:
         raise
     except Exception as error:  # pdfminer raises several unrelated exception types

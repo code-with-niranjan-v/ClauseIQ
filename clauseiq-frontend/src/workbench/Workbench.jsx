@@ -11,6 +11,11 @@ import ActionPlan from './pages/ActionPlan.jsx'
 import AuditTrail from './pages/AuditTrail.jsx'
 import SystemAssessment from './pages/SystemAssessment.jsx'
 import PolicyChat from './PolicyChat.jsx'
+import CircularChanges from './pages/CircularChanges.jsx'
+import DataDiscovery from './pages/DataDiscovery.jsx'
+import ExtractionQuality from './pages/ExtractionQuality.jsx'
+import Users from './pages/Users.jsx'
+import { useAuth } from '../authContext.js'
 
 const nav = [
   { name: 'Overview', path: '/workbench', icon: 'M3 3v18h18M7 14l3-3 3 2 5-6' },
@@ -19,10 +24,15 @@ const nav = [
   { name: 'Gaps & mapping', path: '/workbench/gaps', icon: 'M3 6h18M3 12h18M3 18h18M8 3v18M15 3v18' },
   { name: 'Action plan', path: '/workbench/actions', icon: 'M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2' },
   { name: 'Audit trail', path: '/workbench/audit', icon: 'M12 8v4l3 2M3 12a9 9 0 109-9 9 9 0 00-7 3.4M3 4v4h4' },
-  { name: 'System assessment', path: '/workbench/system-assessment', icon: 'M4 6c0-4 16-4 16 0s-16 4-16 0v12c0 4 16 4 16 0V6M4 12c0 4 16 4 16 0' },
+  { name: 'System assessment', path: '/workbench/system-assessment', icon: 'M12 2l9 5-9 5-9-5 9-5zM3 12l9 5 9-5M3 17l9 5 9-5' },
+  { name: 'Circular changes', path: '/workbench/changes', icon: 'M6 3v12M6 21a3 3 0 100-6 3 3 0 000 6zM18 9a3 3 0 100-6 3 3 0 000 6zM18 9a9 9 0 01-9 9' },
+  { name: 'Data discovery', path: '/workbench/data-discovery', icon: 'M4 6c0-4 16-4 16 0s-16 4-16 0v12c0 4 16 4 16 0V6M4 12c0 4 16 4 16 0' },
+  { name: 'Extraction quality', path: '/workbench/quality', icon: 'M12 14l4-4M3.5 18a9 9 0 1117 0' },
+  { name: 'Users', path: '/workbench/users', admin: true, icon: 'M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75' },
 ]
 
-export default function RegDesk() {
+export default function Workbench() {
+  const user = useAuth()
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const page = nav.findIndex(({ path }) => pathname.replace(/\/$/, '') === path)
@@ -31,10 +41,10 @@ export default function RegDesk() {
   const [filter, setFilter] = useState('All')
   const [qa, setQa] = useState(false)
   const [chat, setChat] = useState([])
-  const [dark, setDark] = useState(() => localStorage.getItem('regdesk-theme') === 'dark')
+  const [dark, setDark] = useState(() => (localStorage.getItem('clauseiq-theme') ?? localStorage.getItem('regdesk-theme')) === 'dark')
   const [sidebarExpanded, setSidebarExpanded] = useState(() => {
     if (window.matchMedia('(max-width: 660px)').matches) return false
-    const preference = localStorage.getItem('regdesk-sidebar')
+    const preference = localStorage.getItem('clauseiq-sidebar') ?? localStorage.getItem('regdesk-sidebar')
     return preference ? preference === 'expanded' : window.matchMedia('(min-width: 1150px)').matches
   })
   const [revision, setRevision] = useState(0)
@@ -52,7 +62,7 @@ export default function RegDesk() {
     const expanded = !sidebarExpanded
     setSidebarExpanded(expanded)
     if (!window.matchMedia('(max-width: 660px)').matches) {
-      localStorage.setItem('regdesk-sidebar', expanded ? 'expanded' : 'collapsed')
+      localStorage.setItem('clauseiq-sidebar', expanded ? 'expanded' : 'collapsed')
     }
   }
 
@@ -61,7 +71,7 @@ export default function RegDesk() {
   }
 
   useEffect(() => {
-    localStorage.setItem('regdesk-theme', dark ? 'dark' : 'light')
+    localStorage.setItem('clauseiq-theme', dark ? 'dark' : 'light')
   }, [dark])
 
   useEffect(() => {
@@ -78,7 +88,7 @@ export default function RegDesk() {
     return () => window.removeEventListener('keydown', shortcuts)
   })
 
-  if (page < 0) return <Navigate to="/workbench" replace />
+  if (page < 0 || (nav[page].admin && !user.can.admin)) return <Navigate to="/workbench" replace />
 
   function handleReviewSaved() {
     refresh()
@@ -106,21 +116,35 @@ export default function RegDesk() {
     case 6:
       screen = <SystemAssessment />
       break
+    case 7:
+      screen = <CircularChanges onChanged={handleReviewSaved} />
+      break
+    case 8:
+      screen = <DataDiscovery />
+      break
+    case 9:
+      screen = <ExtractionQuality />
+      break
+    case 10:
+      screen = <Users />
+      break
     default:
       screen = <Overview documents={documents} obligations={obligations} findings={findings} details={details}
         audit={audit} sources={sources} open={open} navigate={setPage} />
   }
 
-  return <div className={dark ? "regdesk dark" : "regdesk"}><style>{workbenchStyles}</style><div className="shell" data-sidebar={sidebarExpanded ? 'expanded' : 'collapsed'}><header className="bar"><div className="logo">RD</div>
-    <button type="button" className="tb sidebar-toggle" aria-controls="regdesk-sidebar" aria-expanded={sidebarExpanded}
+  return <div className={dark ? "clauseiq dark" : "clauseiq"}><style>{workbenchStyles}</style><div className="shell" data-sidebar={sidebarExpanded ? 'expanded' : 'collapsed'}><header className="bar"><div className="logo">CQ</div>
+    <button type="button" className="tb sidebar-toggle" aria-controls="clauseiq-sidebar" aria-expanded={sidebarExpanded}
       aria-label={sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'} title={sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'} onClick={toggleSidebar}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M9 5v14" /></svg>
-    </button><div className="crumb">RegDesk <span>/ {nav[page].name}</span></div>
+    </button><div className="crumb">ClauseIQ <span>/ {nav[page].name}</span></div>
     <button className="cmd" aria-label="Ask the approved policies" onClick={() => setQa(true)}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg><span>Ask the approved policies…</span><kbd>/</kbd></button>
     <span className="live">{sources.length > 0 && <i />} {sources.length ? `Watching ${sources.map((source) => source.regulator).join(' · ')}` : 'Regulator watcher'}</span>
     <button className="tb" aria-label="Toggle theme" aria-pressed={dark} onClick={() => setDark(!dark)}>◐</button>
-    <div className="me" title="Reviewer">R</div></header>
-    <nav id="regdesk-sidebar" className="rail" aria-label="Workbench">{nav.map(({ name, icon, path }, index) => <Link key={path} to={path} className={`rb ${page === index ? 'on' : ''}`} data-t={name}
+    <span className="me" title={`${user.displayName} · ${user.role.toLowerCase()}`}>{user.displayName.slice(0, 1).toUpperCase()}</span>
+    <span className="who">{user.displayName}<small>{user.role.toLowerCase()}</small></span>
+    <button className="tb signout" onClick={user.signOut} aria-label="Sign out" title="Sign out">⏻</button></header>
+    <nav id="clauseiq-sidebar" className="rail" aria-label="Workbench">{nav.map(({ name, icon, path, admin }, index) => (admin && !user.can.admin) ? null : <Link key={path} to={path} className={`rb ${page === index ? 'on' : ''}`} data-t={name}
       aria-label={name} aria-current={page === index ? 'page' : undefined} onClick={closeSidebarOnMobile}><svg viewBox="0 0 24 24"><path d={icon} /></svg>
       <span className="nav-label">{name}</span>{index === 2 && <b>{findings.filter(pending).length}</b>}</Link>)}
       <Link className="rb" to="/test" data-t="Testing dashboard" aria-label="Testing dashboard"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 10l2 2-2 2m5 0h3" /></svg><span className="nav-label">Testing dashboard</span></Link>

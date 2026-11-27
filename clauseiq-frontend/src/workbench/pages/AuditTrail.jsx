@@ -23,7 +23,7 @@ function exportAudit(entries) {
   const url = URL.createObjectURL(new Blob([rows.map((row) => row.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }))
   const link = document.createElement('a')
   link.href = url
-  link.download = 'regdesk-audit.csv'
+  link.download = 'clauseiq-audit.csv'
   link.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }

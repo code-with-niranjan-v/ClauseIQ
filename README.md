@@ -10,7 +10,7 @@ docker compose up --build -d --wait
 
 | Service | Default local URL |
 | --- | --- |
-| RegDesk workbench | http://localhost:5173/workbench |
+| ClauseIQ workbench | http://localhost:5173/workbench |
 | Pipeline testing dashboard | http://localhost:5173/test |
 | Backend health | http://localhost:8080/actuator/health |
 | Scanner health | http://localhost:8081/actuator/health |
@@ -23,13 +23,13 @@ Use `docker compose logs -f circular-ingestion` to see ingestion startup and pro
 
 ## Policy Q&A
 
-Press `/` in the RegDesk workbench, or click **Ask the approved policies**, to ask a policy question. The assistant answers only from approved policy text: sections of the policy handbook, and the policy wording of findings a reviewer approved or edited and approved. Each approved update cites the circular it came from. Pending and rejected findings, AI drafts and raw circular text are never used.
+Press `/` in the ClauseIQ workbench, or click **Ask the approved policies**, to ask a policy question. The assistant answers only from approved policy text: sections of the policy handbook, and the policy wording of findings a reviewer approved or edited and approved. Each approved update cites the circular it came from. Pending and rejected findings, AI drafts and raw circular text are never used.
 
 Every answer lists its sources. If no approved source passes the similarity threshold, or the sources do not answer the question, the assistant says so and refers the employee to the Compliance Officer or Data Protection Officer. Set `CHAT_MIN_SIMILARITY` (default `0.3`) and `CHAT_TOP_K` (default `5`) in `.env` to tune retrieval. The backend endpoint is `POST /api/chat` with `{"question": "..."}`.
 
 ## System assessment
 
-Open **System assessment** in the RegDesk workbench to compare a system's design with the ingested circulars. Upload any of an SRE document, an architecture diagram and an ER diagram, each as a PDF, PNG, JPEG or WebP file of up to 20 MiB, or click **Use demo bank files** to load the fictional NeoPay bank in [demo-bank](demo-bank/README.md).
+Open **System assessment** in the ClauseIQ workbench to compare a system's design with the ingested circulars. Upload any of an SRE document, an architecture diagram and an ER diagram, each as a PDF, PNG, JPEG or WebP file of up to 20 MiB, or click **Use demo bank files** to load the fictional NeoPay bank in [demo-bank](demo-bank/README.md).
 
 The ingestion worker reads text documents directly and reads diagrams with the OpenAI vision model, turning each into factual statements about the system. It then picks the circular obligations closest to those statements, at most `SYSTEM_MAX_OBLIGATIONS` (default `20`) above `SYSTEM_MIN_SIMILARITY` (default `0.3`), and asks the model whether the design meets, partly meets, misses or conflicts with each one. Every judgement must cite the system evidence it relies on. Severity and the phased improvement plan are rule-based. An assessment takes a minute or two and costs one model call per diagram and per compared obligation.
 

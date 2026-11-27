@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api.js'
+import { useAuth } from '../authContext.js'
 
 export default function ReviewPane({ finding, roles, onSaved }) {
   const { id, obligation, recommendation } = finding
   const citation = obligation.citation
-  const [reviewer, setReviewer] = useState(() => localStorage.getItem('regdesk-reviewer') || '')
+  const user = useAuth()
   const [mode, setMode] = useState('')
   const [comment, setComment] = useState('')
   const [title, setTitle] = useState(finding.title)
@@ -12,7 +13,7 @@ export default function ReviewPane({ finding, roles, onSaved }) {
   const [owner, setOwner] = useState(recommendation?.assignedRole ?? '')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
-  const pending = finding.status === 'PENDING_REVIEW'
+  const pending = finding.status === 'PENDING_REVIEW' && user.can.review
   const level = finding.severity.toLowerCase().replace(/^./, (c) => c.toUpperCase())
   const confidence = Math.round(finding.confidence * 100)
   const status = pending ? 'pending sign-off' : finding.status.toLowerCase().replaceAll('_', ' ')
@@ -29,8 +30,8 @@ export default function ReviewPane({ finding, roles, onSaved }) {
 
   async function submit(event) {
     event.preventDefault()
-    if (!reviewer.trim() || (mode === 'reject' && !comment.trim())) return
-    const body = { reviewer: reviewer.trim(), comment: comment.trim() }
+    if (mode === 'reject' && !comment.trim()) return
+    const body = { comment: comment.trim() }
     setBusy(true)
     setNotice('')
     try {
@@ -38,11 +39,10 @@ export default function ReviewPane({ finding, roles, onSaved }) {
         if (title.trim() !== finding.title) body.title = title.trim()
         if (recommendation && draft.trim() !== (recommendation.draftPolicyText ?? '')) body.draftPolicyText = draft.trim()
         if (recommendation && owner !== (recommendation.assignedRole ?? '')) body.assignedRole = owner
-        if (Object.keys(body).length === 2) { setNotice('Change the wording, draft or owner before submitting.'); return }
+        if (Object.keys(body).length === 1) { setNotice('Change the wording, draft or owner before submitting.'); return }
         await api.editAndApprove(id, body)
       } else if (mode === 'reject') await api.reject(id, body)
       else await api.approve(id, body)
-      localStorage.setItem('regdesk-reviewer', body.reviewer)
       setMode('')
       setComment('')
       setNotice('Decision recorded.')
@@ -88,7 +88,7 @@ export default function ReviewPane({ finding, roles, onSaved }) {
       {notice && <p className="ib" role="status">{notice}</p>}
       {pending && (mode ? <form onSubmit={submit}>
         <div className="ib review-fields">
-          <label>Reviewer<input className="f" value={reviewer} onChange={(event) => setReviewer(event.target.value)} required autoFocus /></label>
+          <p className="review-as">Recorded as <b>{user.displayName}</b></p>
           <label>{mode === 'reject' ? 'Reason for rejection' : 'Comment'}<textarea className="f" value={comment} onChange={(event) => setComment(event.target.value)} required={mode === 'reject'} /></label>
           {mode === 'edit' && <>
             <label className="review-field-wide">Finding wording<textarea className="f" value={title} required onChange={(event) => setTitle(event.target.value)} /></label>

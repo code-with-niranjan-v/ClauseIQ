@@ -1,14 +1,15 @@
-﻿# RegDesk workbench
+# ClauseIQ frontend
 
-RegDesk is the React frontend for ClauseIQ. Open `http://localhost:5173/workbench` for RegDesk or `http://localhost:5173/test` for the original pipeline testing dashboard. The overview, regulator watcher, PDF upload, findings, recommendations, and review history use live data through the Axios client in `src/api.js`. Vite and nginx both forward same-origin `/api` requests to the Spring Boot backend.
+The React frontend for ClauseIQ. Open `http://localhost:5173/workbench` for the ClauseIQ workbench or `http://localhost:5173/test` for the original pipeline testing dashboard. Both use live data through the Axios client in `src/api.js`. Vite and nginx forward same-origin `/api` requests to the Spring Boot backend.
 
-The workbench supports finding approval, editing and rejection, audit CSV export, and ingestion queue controls. The cited document pane shows the exact quote returned by the backend. Policy Q&A, schema discovery, and task delivery are visible and marked unavailable until there are backend endpoints for them.
+Every page requires sign-in. The session cookie and the `XSRF-TOKEN` cookie are set by the backend, and Axios returns the CSRF token in the `X-XSRF-TOKEN` header. Viewers can read and ask Policy Q&A; reviewers can also review, upload, scan and confirm circular changes; administrators can also manage users.
 
 ## Frontend layout
 
+- `src/auth.jsx` is the sign-in gate, and `src/authContext.js` provides the signed-in user to components.
 - `src/App.jsx` contains the pipeline testing dashboard.
-- `src/regdesk/RegDesk.jsx` contains the RegDesk layout and navigation.
-- `src/regdesk/pages/` contains the seven RegDesk screens. Each screen has a direct URL under `/workbench`.
+- `src/workbench/Workbench.jsx` contains the workbench layout and navigation.
+- `src/workbench/pages/` contains the workbench screens: overview, ingest, review, gaps and mapping, action plan, audit trail, system assessment, circular changes, data discovery, extraction quality and, for administrators, users. Each has a direct URL under `/workbench`.
 - `src/api.js` is the shared Axios client.
 
 ## Run locally

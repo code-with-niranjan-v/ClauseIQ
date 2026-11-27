@@ -38,7 +38,7 @@ class SystemAssessmentStore:
                 JOIN regulatory_document d ON d.id = o.document_id
                 LEFT JOIN LATERAL (SELECT quoted_text, page_number, clause_number FROM citation
                                    WHERE obligation_id = o.id LIMIT 1) c ON true
-                WHERE k.embedding IS NOT NULL
+                WHERE k.embedding IS NOT NULL AND o.lifecycle_status = 'ACTIVE'
                 """).fetchall()
         return [CircularObligation(
             obligation_id=row[0], summary=row[1], required_action=row[2], deadline=row[3],

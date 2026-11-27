@@ -225,3 +225,77 @@ CREATE TABLE IF NOT EXISTS system_finding (
 );
 
 CREATE INDEX IF NOT EXISTS system_finding_assessment_idx ON system_finding (assessment_id);
+
+-- Extraction quality. ocr_page_count is NULL for versions processed before it was recorded.
+ALTER TABLE regulatory_document_version ADD COLUMN IF NOT EXISTS ocr_page_count integer;
+
+-- Models sometimes return the word "null" instead of no value. Earlier versions stored it.
+UPDATE obligation SET deadline = NULL
+WHERE lower(btrim(deadline)) IN ('null', 'none', 'n/a', 'na', 'not specified', 'not stated', 'not mentioned', '');
+UPDATE obligation SET responsible_entity = NULL
+WHERE lower(btrim(responsible_entity)) IN ('null', 'none', 'n/a', 'na', 'not specified', 'not stated', 'not mentioned', '');
+UPDATE obligation SET applicability = NULL
+WHERE lower(btrim(applicability)) IN ('null', 'none', 'n/a', 'na', 'not specified', 'not stated', 'not mentioned', '');
+
+-- Circular lineage: which circulars supersede, withdraw, amend or refer to others.
+CREATE TABLE IF NOT EXISTS document_identifier (
+    document_id text NOT NULL REFERENCES regulatory_document(id) ON DELETE CASCADE,
+    identifier text NOT NULL,          -- as printed, e.g. IRDAI/F&I/CIR/MISC/142/11/2026
+    normalized text NOT NULL,          -- for matching: upper case, no spaces, no leading zeros
+    PRIMARY KEY (document_id, normalized)
+);
+
+CREATE INDEX IF NOT EXISTS document_identifier_normalized_idx ON document_identifier (normalized);
+
+CREATE TABLE IF NOT EXISTS circular_link (
+    id uuid PRIMARY KEY,
+    source_document_id text NOT NULL REFERENCES regulatory_document(id) ON DELETE CASCADE,
+    relation text NOT NULL,            -- SUPERSEDES, WITHDRAWS, AMENDS, REFERS_TO
+    cited_identifier text NOT NULL,
+    cited_normalized text NOT NULL,
+    target_document_id text REFERENCES regulatory_document(id) ON DELETE SET NULL,
+    page_number integer,
+    evidence text NOT NULL,
+    status text NOT NULL DEFAULT 'PROPOSED',   -- PROPOSED, CONFIRMED, DISMISSED
+    decided_by text,
+    decided_at timestamptz,
+    retired_obligations integer,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (source_document_id, cited_normalized)
+);
+
+ALTER TABLE obligation ADD COLUMN IF NOT EXISTS lifecycle_status text NOT NULL DEFAULT 'ACTIVE';  -- ACTIVE, RETIRED
+ALTER TABLE obligation ADD COLUMN IF NOT EXISTS retired_by_link uuid;
+ALTER TABLE obligation ADD COLUMN IF NOT EXISTS retired_at timestamptz;
+
+-- Live database scans: metadata only, never row values.
+CREATE TABLE IF NOT EXISTS data_scan (
+    id uuid PRIMARY KEY,
+    target text NOT NULL,
+    status text NOT NULL,              -- COMPLETED, FAILED
+    error text,
+    database_name text,
+    table_count integer,
+    column_count integer,
+    used_ai boolean NOT NULL DEFAULT false,
+    requested_by text,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS data_scan_field (
+    id uuid PRIMARY KEY,
+    scan_id uuid NOT NULL REFERENCES data_scan(id) ON DELETE CASCADE,
+    schema_name text NOT NULL,
+    table_name text NOT NULL,
+    column_name text NOT NULL,
+    data_type text NOT NULL,
+    classification text NOT NULL,
+    sensitivity text NOT NULL,         -- HIGH, MEDIUM, LOW
+    protected boolean NOT NULL,
+    reason text NOT NULL,
+    confidence real NOT NULL,
+    recommended_control text NOT NULL,
+    method text NOT NULL               -- RULES, AI
+);
+
+CREATE INDEX IF NOT EXISTS data_scan_field_scan_idx ON data_scan_field (scan_id);

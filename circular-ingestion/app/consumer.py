@@ -201,6 +201,18 @@ class DocumentConsumer:
         elif outcome == "COMPLETED":
             self.processed += 1
         await self._consumer.commit()
+        if outcome == "COMPLETED":
+            await asyncio.to_thread(self._refresh_lineage)
+
+    def _refresh_lineage(self) -> None:
+        """A new circular can supersede earlier ones, or be cited by them. Failure here never blocks ingestion."""
+        try:
+            from app.lineage_store import LineageStore
+
+            result = LineageStore(self._settings.database_url).refresh()
+            logger.info("Circular lineage: %s links across %s circulars", result["links"], result["circulars"])
+        except Exception:
+            logger.exception("Could not refresh circular lineage")
 
     def set_paused(self, paused: bool) -> bool:
         if self._clearing:

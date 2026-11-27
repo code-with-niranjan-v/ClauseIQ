@@ -20,6 +20,9 @@ class NoGraphStore:
     def save(self, event: IngestionEvent, result: IngestionResult) -> None:
         return None
 
+    def save_link(self, link_id: str, source_id: str, target_id: str, relation: str) -> None:
+        return None
+
 
 class Neo4jStore:
     """Traceability graph with the nodes and relationships listed in PLAN.md.
@@ -51,6 +54,19 @@ class Neo4jStore:
 
     def close(self) -> None:
         self._driver.close()
+
+    def save_link(self, link_id: str, source_id: str, target_id: str, relation: str) -> None:
+        """A reviewer-confirmed relationship between two circulars. The relation is one of a fixed set."""
+        if relation not in {"SUPERSEDES", "WITHDRAWS", "AMENDS", "REFERS_TO"}:
+            raise ValueError(relation)
+        with self._driver.session() as session:
+            session.run(
+                f"""
+                MERGE (s:RegulatoryDocument {{id: $source}})
+                MERGE (t:RegulatoryDocument {{id: $target}})
+                MERGE (s)-[r:{relation}]->(t)
+                SET r.linkId = $link, r.confirmedAt = datetime()
+                """, source=source_id, target=target_id, link=link_id)
 
     def save(self, event: IngestionEvent, result: IngestionResult) -> None:
         # Only clauses that carry a detected number or an obligation become nodes.

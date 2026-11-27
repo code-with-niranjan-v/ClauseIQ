@@ -1,11 +1,12 @@
 import { Fragment, useState } from 'react'
+import { reportUrl } from '../../api.js'
 import { Confidence, Heading, Table, Tag } from '../components.jsx'
 import { colors, date, day, isoDate, pending, percent, severities, severity, title } from '../format.js'
 
 export default function Overview({ documents, obligations, findings, details, audit, sources, open, navigate }) {
   const [now] = useState(Date.now)
   const end = now + 154 * day
-  const gaps = findings.filter((item) => item.status !== 'REJECTED')
+  const gaps = findings.filter((item) => !['REJECTED', 'SUPERSEDED'].includes(item.status))
   const dated = gaps.map((item) => ({ ...item, due: details[item.id]?.obligation.deadline }))
     .filter((item) => isoDate(item.due)).sort((a, b) => a.due.localeCompare(b.due))
   const owners = [...new Set(dated.map((item) => item.assignedRole || 'Unassigned'))]
@@ -17,6 +18,8 @@ export default function Overview({ documents, obligations, findings, details, au
     ['Mean confidence', obligations.length
       ? `${percent(obligations.reduce((sum, item) => sum + item.confidence, 0) / obligations.length)}%` : '—']]
   return <><Heading name="Overview" description={`Regulatory change position as of ${new Date(now).toLocaleDateString('en-GB')}`}>
+    <a className="btn" href={reportUrl.posture('pdf')} download>Board report PDF</a>
+    <a className="btn" href={reportUrl.posture('docx')} download>Word</a>
     <button className="btn" onClick={() => navigate(1)}>Ingest circular</button><button className="btn p" onClick={() => navigate(2)}>Start review</button></Heading>
     <div className="overview-priorities">
       <section className="priority priority-review">

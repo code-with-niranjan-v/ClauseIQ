@@ -12,3 +12,15 @@ CREATE TABLE IF NOT EXISTS review_decision (
 );
 
 CREATE INDEX IF NOT EXISTS review_decision_finding_idx ON review_decision (finding_id, decided_at);
+
+-- Sign-in accounts. Passwords are stored as delegating-encoder hashes ({bcrypt}...).
+CREATE TABLE IF NOT EXISTS app_user (
+    id uuid PRIMARY KEY,
+    username text NOT NULL UNIQUE,
+    display_name text NOT NULL,
+    password_hash text NOT NULL,
+    role text NOT NULL,                -- ADMIN, REVIEWER, VIEWER
+    enabled boolean NOT NULL DEFAULT true,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    last_login_at timestamptz
+);

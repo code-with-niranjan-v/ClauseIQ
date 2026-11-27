@@ -133,7 +133,8 @@ def build_workflow(deps: Dependencies):
         event = state["event"]
         result = IngestionResult(
             document_id=event.document_id, document_version_id=event.document_version_id,
-            page_count=len(state["pages"]), chunks=state["chunks"],
+            page_count=len(state["pages"]), ocr_page_count=sum(1 for page in state["pages"] if page.ocr),
+            chunks=state["chunks"],
             obligations=state["obligations"], rejected=state["rejected"], assessments=state["assessments"])
         # Neo4j first: its writes are idempotent, and PostgreSQL marks the event
         # completed in the same transaction as the results. A failure in either

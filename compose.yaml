@@ -105,6 +105,8 @@ services:
       CHAT_TOP_K: ${CHAT_TOP_K:-5}
       SYSTEM_MIN_SIMILARITY: ${SYSTEM_MIN_SIMILARITY:-0.3}
       SYSTEM_MAX_OBLIGATIONS: ${SYSTEM_MAX_OBLIGATIONS:-20}
+      # Read-only, metadata-only scan targets: name=postgresql://user:password@host:port/db;...
+      SCAN_TARGETS: ${SCAN_TARGETS:-neopay=postgresql://clauseiq_scanner:${NEOPAY_SCANNER_PASSWORD:-neopay-demo-scan}@neopay-db:5432/neopay}
     depends_on:
       ingestion-postgres:
         condition: service_healthy
@@ -130,6 +132,9 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       CLAUSEIQ_SCANNER_URL: http://circular-scanner:8080
       CLAUSEIQ_INGESTION_URL: http://circular-ingestion:8000
+      # The first administrator, created only when no accounts exist. A blank password is generated and logged once.
+      CLAUSEIQ_ADMIN_USERNAME: ${CLAUSEIQ_ADMIN_USERNAME:-admin}
+      CLAUSEIQ_ADMIN_PASSWORD: ${CLAUSEIQ_ADMIN_PASSWORD:-}
       CLAUSEIQ_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:${FRONTEND_PORT:-5173},http://127.0.0.1:${FRONTEND_PORT:-5173}}
     depends_on:
       ingestion-postgres:
@@ -154,6 +159,22 @@ services:
       - ingestion-postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U clauseiq -d clauseiq"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # The fictional NeoPay bank's core database: schema only, no rows. Target of the demo data scan.
+  neopay-db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: neopay
+      POSTGRES_USER: neopay_owner
+      POSTGRES_PASSWORD: ${NEOPAY_DB_PASSWORD:-neopay-demo-owner}
+      NEOPAY_SCANNER_PASSWORD: ${NEOPAY_SCANNER_PASSWORD:-neopay-demo-scan}
+    volumes:
+      - ./demo-bank/neopay-db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neopay_owner -d neopay"]
       interval: 3s
       timeout: 3s
       retries: 20
