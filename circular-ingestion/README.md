@@ -49,7 +49,7 @@ The scanner's Compose project owns Kafka and MinIO and does not publish their po
 ```sh
 docker compose up --build -d --wait
 curl -fsS http://localhost:8000/health
-curl -fsS -X POST http://localhost:8081/api/admin/sources/sebi/scan
+curl -fsS -X POST http://localhost:8081/api/admin/sources/rbi/scan
 ```
 
 This also starts the backend API from `clauseiq-backend/` on `http://localhost:8080`. See its [README](../clauseiq-backend/README.md) for the endpoints.
