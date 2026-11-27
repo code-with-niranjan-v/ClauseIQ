@@ -1,0 +1,6 @@
+# Binary documents and images must never have their line endings converted.
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
