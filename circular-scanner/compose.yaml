@@ -1,6 +1,12 @@
 services:
   circular-scanner:
     build: .
+    init: true
+    # www.sebi.gov.in fails to resolve through some resolvers (SERVFAIL from Google DNS, timeouts
+    # from Docker Desktop's default). Override with SCANNER_DNS_PRIMARY/SECONDARY if outbound DNS is restricted.
+    dns:
+      - ${SCANNER_DNS_PRIMARY:-1.1.1.1}
+      - ${SCANNER_DNS_SECONDARY:-9.9.9.9}
     ports:
       - "127.0.0.1:${SCANNER_PORT:-8081}:8080"
     environment:

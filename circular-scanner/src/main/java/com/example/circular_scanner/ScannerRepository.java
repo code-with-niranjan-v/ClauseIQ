@@ -65,6 +65,13 @@ class ScannerRepository {
                 """, Boolean.class, source, checksum));
     }
 
+    /** Rendered PDFs differ byte for byte on every run, so a web version is matched by its source HTML. */
+    boolean knownWebVersion(String source, String fingerprint) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM scanned_document WHERE source_id = ? AND web_fingerprint = ?)
+                """, Boolean.class, source, fingerprint));
+    }
+
     boolean requeueUpload(String source, String checksum, OffsetDateTime cutoff) {
         return jdbc.update("""
                 UPDATE scanned_document SET requeued_at = clock_timestamp(), published_at = NULL, publication_error = NULL
@@ -80,12 +87,13 @@ class ScannerRepository {
     }
 
     void insert(UUID id, UUID documentId, int version, String source, String url, String title,
-                String checksum, String bucket, String key) {
+                String checksum, String bucket, String key, String webFingerprint) {
         jdbc.update("""
                 INSERT INTO scanned_document
-                    (id, document_id, version_number, source_id, source_url, title, checksum, object_bucket, object_key)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, id, documentId, version, source, url, title, checksum, bucket, key);
+                    (id, document_id, version_number, source_id, source_url, title, checksum, object_bucket, object_key,
+                     web_fingerprint)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, id, documentId, version, source, url, title, checksum, bucket, key, webFingerprint);
     }
 
     Optional<Document> nextPending() {

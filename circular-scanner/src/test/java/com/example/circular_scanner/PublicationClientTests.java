@@ -52,6 +52,66 @@ class PublicationClientTests {
                 .isInstanceOf(java.io.IOException.class).hasMessageContaining("PDF header");
     }
 
+    @Test
+    void usesThePdfInsideSebisViewerLink() throws Exception {
+        var client = spy(new PublicationClient());
+        doReturn(response(LISTING, """
+                <a href="/legal/circulars/nov-2026/update_1.html">Margin framework</a>
+                """)).when(client).fetch(eq(LISTING), eq(HOSTS), anyInt());
+        doReturn(response(DETAIL, """
+                <iframe src='../../../web/?file=https://www.sebi.gov.in/sebi_data/attachdocs/nov-2026/1.PDF'></iframe>
+                <iframe src='../../../web/?file=https://other.example/untrusted.pdf'></iframe>
+                """)).when(client).fetch(eq(DETAIL), eq(HOSTS), anyInt());
+
+        assertThat(client.discover(SOURCE).candidates()).containsExactly(new PublicationClient.Candidate(
+                URI.create("https://www.sebi.gov.in/sebi_data/attachdocs/nov-2026/1.PDF"), "Margin framework"));
+    }
+
+    @Test
+    void readsPublicationsFromAJsonListing() throws Exception {
+        var listing = URI.create("https://www.meity.gov.in/cms/wp-json/custom/api/search?s=dpdp");
+        var source = new ScannerRepository.Source("dpdp", "MeitY", "MeitY", listing.toString(), "www.meity.gov.in",
+                "(?i)digital-personal-data-protection", true, null, null, null, "NEVER_RUN", null, 0, 0);
+        var client = spy(new PublicationClient());
+        doReturn(response(listing, """
+                {"data": [
+                  {"title": "DPDP Rules, 2025", "link": "https://cms.example/documents/digital-personal-data-protection-rules/",
+                   "acf_data": {"pdf": {"url": "https:\\/\\/www.meity.gov.in\\/static\\/uploads\\/rules.pdf"}}},
+                  {"title": "DPDP Rules 2025", "link": "https://cms.example/central/digital-personal-data-protection-rules/",
+                   "acf_data": {"pdf": {"url": "https://www.meity.gov.in/static/uploads/rules.pdf"}}},
+                  {"title": "Research", "link": "https://cms.example/our_division/research/",
+                   "content": "https://www.meity.gov.in/static/uploads/brochure.pdf"},
+                  {"title": "Elsewhere", "link": "https://cms.example/digital-personal-data-protection-x/",
+                   "file": "https://other.example/x.pdf"}
+                ]}
+                """)).when(client).fetch(eq(listing), eq(Set.of("www.meity.gov.in")), anyInt());
+
+        assertThat(client.discover(source).candidates()).containsExactly(new PublicationClient.Candidate(
+                URI.create("https://www.meity.gov.in/static/uploads/rules.pdf"), "DPDP Rules, 2025"));
+    }
+
+    @Test
+    void keepsOneCandidatePerUrlIgnoringCase() throws Exception {
+        var client = spy(new PublicationClient());
+        doReturn(response(LISTING, """
+                <a href="/rdocs/Notification/PDFs/NT1.PDF">Circular</a>
+                <a href="/rdocs/notification/PDFs/NT1.PDF">Circular again</a>
+                """)).when(client).fetch(eq(LISTING), eq(HOSTS), anyInt());
+
+        assertThat(client.discover(SOURCE).candidates()).extracting(PublicationClient.Candidate::title)
+                .containsExactly("Circular");
+    }
+
+    @Test
+    void reportsBotProtectionPages() throws Exception {
+        var client = spy(new PublicationClient());
+        doReturn(response(DIRECT, "<html><script src=\"/TSPD/08c70ea5?type=7\"></script></html>"))
+                .when(client).fetch(eq(DIRECT), eq(HOSTS), anyInt());
+
+        assertThatThrownBy(() -> client.download(SOURCE, new PublicationClient.Candidate(DIRECT, "Circular")))
+                .isInstanceOf(PublicationClient.InvalidPdfResponse.class).hasMessageContaining("bot-protection");
+    }
+
     private static PublicationClient.Response response(URI uri, String value) {
         return new PublicationClient.Response(uri, value.getBytes(StandardCharsets.UTF_8));
     }
