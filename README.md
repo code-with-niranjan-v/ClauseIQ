@@ -10,7 +10,7 @@ docker compose up --build -d --wait
 
 | Service | Default local URL |
 | --- | --- |
-| Frontend | http://localhost:5173 |
+| Frontend | http://localhost:5173/test |
 | Backend health | http://localhost:8080/actuator/health |
 | Scanner health | http://localhost:8081/actuator/health |
 | Ingestion health and consumer status | http://localhost:8000/health |
