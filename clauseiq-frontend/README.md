@@ -19,9 +19,9 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173`. The backend is expected at `http://localhost:8080`. To use another address, set `VITE_BACKEND_URL` before `npm run dev`.
+Open `http://localhost:5173/test`. The backend is expected at `http://localhost:8080`. To use another address, set `VITE_BACKEND_URL` before `npm run dev`.
 
-With Docker, the root `compose.yaml` serves the built page on `http://localhost:5173` through nginx, which forwards `/api` to the backend.
+With Docker, the root `compose.yaml` serves the built page on `http://localhost:5173/test` through nginx, which forwards `/api` to the backend.
 
 ## Checks
 
