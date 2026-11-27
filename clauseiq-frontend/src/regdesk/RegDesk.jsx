@@ -32,6 +32,11 @@ export default function RegDesk() {
   const [qa, setQa] = useState(false)
   const [chat, setChat] = useState([])
   const [dark, setDark] = useState(() => localStorage.getItem('regdesk-theme') === 'dark')
+  const [sidebarExpanded, setSidebarExpanded] = useState(() => {
+    if (window.matchMedia('(max-width: 660px)').matches) return false
+    const preference = localStorage.getItem('regdesk-sidebar')
+    return preference ? preference === 'expanded' : window.matchMedia('(min-width: 1150px)').matches
+  })
   const [revision, setRevision] = useState(0)
   const { data, error, refresh } = useCatalog()
   const { documents = [], obligations = [], findings = [], sources = [], roles = [] } = data
@@ -42,6 +47,18 @@ export default function RegDesk() {
   const audit = Object.values(details).flatMap((item) => item.decisions.map((decision) => ({ ...decision, item })))
     .sort((a, b) => Date.parse(b.decidedAt) - Date.parse(a.decidedAt))
   const open = (id) => { setSelected(id); setFilter('All'); setPage(2) }
+
+  function toggleSidebar() {
+    const expanded = !sidebarExpanded
+    setSidebarExpanded(expanded)
+    if (!window.matchMedia('(max-width: 660px)').matches) {
+      localStorage.setItem('regdesk-sidebar', expanded ? 'expanded' : 'collapsed')
+    }
+  }
+
+  function closeSidebarOnMobile() {
+    if (window.matchMedia('(max-width: 660px)').matches) setSidebarExpanded(false)
+  }
 
   useEffect(() => {
     localStorage.setItem('regdesk-theme', dark ? 'dark' : 'light')
@@ -94,13 +111,17 @@ export default function RegDesk() {
         audit={audit} sources={sources} open={open} navigate={setPage} />
   }
 
-  return <div className={dark ? "regdesk dark" : "regdesk"}><style>{workbenchStyles}</style><div className="shell"><header className="bar"><div className="logo">RD</div><div className="crumb">RegDesk <span>/ {nav[page].name}</span></div>
+  return <div className={dark ? "regdesk dark" : "regdesk"}><style>{workbenchStyles}</style><div className="shell" data-sidebar={sidebarExpanded ? 'expanded' : 'collapsed'}><header className="bar"><div className="logo">RD</div>
+    <button type="button" className="tb sidebar-toggle" aria-controls="regdesk-sidebar" aria-expanded={sidebarExpanded}
+      aria-label={sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'} title={sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'} onClick={toggleSidebar}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M9 5v14" /></svg>
+    </button><div className="crumb">RegDesk <span>/ {nav[page].name}</span></div>
     <button className="cmd" aria-label="Ask the approved policies" onClick={() => setQa(true)}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg><span>Ask the approved policies…</span><kbd>/</kbd></button>
     <span className="live">{sources.length > 0 && <i />} {sources.length ? `Watching ${sources.map((source) => source.regulator).join(' · ')}` : 'Regulator watcher'}</span>
     <button className="tb" aria-label="Toggle theme" aria-pressed={dark} onClick={() => setDark(!dark)}>◐</button>
     <div className="me" title="Reviewer">R</div></header>
-    <nav className="rail" aria-label="Workbench">{nav.map(({ name, icon, path }, index) => <Link key={path} to={path} className={`rb ${page === index ? 'on' : ''}`} data-t={name}
-      aria-label={name} aria-current={page === index ? 'page' : undefined}><svg viewBox="0 0 24 24"><path d={icon} /></svg>
+    <nav id="regdesk-sidebar" className="rail" aria-label="Workbench">{nav.map(({ name, icon, path }, index) => <Link key={path} to={path} className={`rb ${page === index ? 'on' : ''}`} data-t={name}
+      aria-label={name} aria-current={page === index ? 'page' : undefined} onClick={closeSidebarOnMobile}><svg viewBox="0 0 24 24"><path d={icon} /></svg>
       <span className="nav-label">{name}</span>{index === 2 && <b>{findings.filter(pending).length}</b>}</Link>)}
       <Link className="rb" to="/test" data-t="Testing dashboard" aria-label="Testing dashboard"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 10l2 2-2 2m5 0h3" /></svg><span className="nav-label">Testing dashboard</span></Link>
       <span className="sp" /><button className="rb" data-t="Policy Q&A ( / )" aria-label="Policy Q&A" onClick={() => setQa(true)}>
