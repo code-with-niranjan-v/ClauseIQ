@@ -57,10 +57,21 @@ export default function Ingest({ data, refresh }) {
       <div className="term" role="status"><div>{message || 'Waiting for a document'}</div>
         <div>Consumer · {title(processing?.state ?? processing?.consumer?.state)}</div>
         {queue.slice(0, 5).map((entry) => <div key={entry.id}>› {entry.title} · {entry.published ? 'published' : 'waiting'}</div>)}</div></div>
-    <div className="cols"><div className="sec"><div className="sh">Circulars <span>{documents.length} documents</span></div>
-      <Table headers={['Reg.', 'Title', 'Discovered', 'Pages', 'Obligations', 'Status']}>{documents.map((item) => <tr key={item.documentVersionId}>
-        <td className="cl">{item.regulator}</td><td>{/^https?:\/\//i.test(item.sourceUrl ?? '') ? <a className="text-action" href={item.sourceUrl} target="_blank" rel="noreferrer">{item.title}</a> : item.title}</td>
-        <td className="mono">{date(item.createdAt)}</td><td>{item.pageCount ?? '—'}</td><td>{item.obligationCount ?? '—'}</td><td><Tag>{title(item.processingStatus)}</Tag></td></tr>)}</Table>
+    <div className="cols ingest-columns"><div className="sec"><div className="sh" id="ingest-circulars">Circulars <span>{documents.length} documents</span></div>
+      <table className="ingest-circulars" aria-labelledby="ingest-circulars">
+        <colgroup><col /><col className="circular-status-column" /></colgroup>
+        <thead><tr><th scope="col">Circular</th><th scope="col">Status</th></tr></thead>
+        <tbody>{documents.length ? documents.map((item) => <tr key={item.documentVersionId}>
+          <td>
+            <strong>{/^https?:\/\//i.test(item.sourceUrl ?? '') ? <a className="text-action" href={item.sourceUrl} target="_blank" rel="noreferrer">{item.title}</a> : item.title}</strong>
+            <div className="circular-metadata">
+              <span>{item.regulator}</span><span>Discovered {date(item.createdAt)}</span>
+              <span>{item.pageCount ?? '—'} pages</span><span>{item.obligationCount ?? '—'} obligations</span>
+            </div>
+          </td>
+          <td><Tag>{title(item.processingStatus)}</Tag></td>
+        </tr>) : <tr><td colSpan={2} className="workbench-empty">No circulars yet.</td></tr>}</tbody>
+      </table>
     </div><div className="sec"><div className="sh">Regulator watcher <span>{sources.length} sources</span></div>
       <Table headers={['Status', 'Source', 'Scan']}>{sources.map((item) => <tr key={item.id}>
         <td><Tag>{title(item.lastRunStatus)}</Tag></td><td>{item.name}<div className="muted">{item.regulator} · {date(item.lastRunAt)}</div></td>
