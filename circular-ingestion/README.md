@@ -52,6 +52,8 @@ curl -fsS http://localhost:8000/health
 curl -fsS -X POST http://localhost:8081/api/admin/sources/sebi/scan
 ```
 
+This also starts the backend API from `clauseiq-backend/` on `http://localhost:8080`. See its [README](../clauseiq-backend/README.md) for the endpoints.
+
 `/health` reports the consumer state (`RUNNING`, `DEGRADED` while it reconnects), the number of processed and dead-lettered events, and the last error. Neo4j Browser is at `http://localhost:7474`.
 
 This Compose file starts its own PostgreSQL because the scanner's `postgres:17` image has no pgvector. To share one database, change the scanner's image to `pgvector/pgvector:pg17` and point `DATABASE_URL` at it. The table names do not collide.
@@ -152,7 +154,7 @@ The worker creates its tables at startup from [app/schema.sql](app/schema.sql).
 | `obligation_mapping` | Policy sections and controls retrieved per obligation, with `matched` |
 | `finding`, `recommendation` | Gaps with status `PENDING_REVIEW`, and the drafted remediation |
 
-The review API can update `finding.status` and should write its decisions to its own `review_decision` table. `original_ai_output` on `finding` and `recommendation` keeps what the model returned before any human edit.
+The backend's review API updates `finding.status` and the edited recommendation fields, and writes each decision to its own `review_decision` table. `original_ai_output` on `finding` and `recommendation` keeps what the model returned before any human edit.
 
 Drafted policy text is stored only in `recommendation`. It is never written as a `POLICY` chunk, so the employee chatbot's filter (`document_type = 'POLICY'` and `approval_status = 'APPROVED'`) cannot return it.
 
