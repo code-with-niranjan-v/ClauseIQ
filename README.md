@@ -19,3 +19,9 @@ docker compose up --build -d --wait
 The frontend shows scanner status, ingested circulars, cited obligations, policy coverage, and findings awaiting review. It uses the backend through the same-origin `/api` proxy. To trigger a scan, run `curl -fsS -X POST http://localhost:8081/api/admin/sources/sebi/scan`. Docker starts both PostgreSQL databases, Kafka, MinIO, and Neo4j on the same Compose network and retains their data in named volumes. The root stack creates its own volumes when run alongside the standalone projects.
 
 Use `docker compose logs -f circular-ingestion` to see ingestion startup and processing. Check its health response for the consumer state. A healthy HTTP process can still be reconnecting to a dependency or waiting for a valid OpenAI key. Stop the stack with `docker compose down`.
+
+## If Neo4j fails to start
+
+Run `docker compose ps neo4j` and `docker compose logs --tail=100 neo4j` to see why. If Docker reports a port conflict, set free values for `NEO4J_HTTP_PORT` and `NEO4J_BOLT_PORT` in the root `.env`. These change the host ports. The ingestion worker still uses `neo4j:7687` inside Compose.
+
+For a fresh data volume, use a `NEO4J_PASSWORD` of at least eight characters. If the worker reports an authentication error against an existing volume, use the password that was set when that volume was initialized. Editing `.env` alone cannot change the stored Neo4j password.
