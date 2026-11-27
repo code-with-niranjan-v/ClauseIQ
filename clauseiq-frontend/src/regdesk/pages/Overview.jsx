@@ -10,13 +10,27 @@ export default function Overview({ documents, obligations, findings, details, au
     .filter((item) => isoDate(item.due)).sort((a, b) => a.due.localeCompare(b.due))
   const owners = [...new Set(dated.map((item) => item.assignedRole || 'Unassigned'))]
   const regulators = [...new Set([...sources, ...obligations].map((item) => item.regulator))]
+  const awaiting = findings.filter(pending).length
+  const deadline = dated[0]
   const stats = [['Circulars', documents.length], ['Obligations', obligations.length], ['Open gaps', gaps.length],
     ['Critical', gaps.filter((item) => severity(item) === 'Critical').length, 'var(--c)'],
-    ['Awaiting sign-off', findings.filter(pending).length, 'var(--ac)'], ['Mean confidence', obligations.length
-      ? `${percent(obligations.reduce((sum, item) => sum + item.confidence, 0) / obligations.length)}%` : '—'],
-    ['Next deadline', date(dated[0]?.due)]]
+    ['Mean confidence', obligations.length
+      ? `${percent(obligations.reduce((sum, item) => sum + item.confidence, 0) / obligations.length)}%` : '—']]
   return <><Heading name="Overview" description={`Regulatory change position as of ${new Date(now).toLocaleDateString('en-GB')}`}>
-    <button className="btn" onClick={() => navigate(1)}>Ingest circular</button><button className="btn p" onClick={() => navigate(2)}>Start review <kbd>→</kbd></button></Heading>
+    <button className="btn" onClick={() => navigate(1)}>Ingest circular</button><button className="btn p" onClick={() => navigate(2)}>Start review</button></Heading>
+    <div className="overview-priorities">
+      <section className="priority priority-review">
+        <h2>Awaiting sign-off</h2>
+        <strong>{awaiting}</strong>
+        <p>{awaiting === 1 ? 'Finding awaiting a decision' : 'Findings awaiting a decision'}</p>
+      </section>
+      <section className="priority">
+        <h2>Next deadline</h2>
+        <strong>{date(deadline?.due)}</strong>
+        {deadline ? <button className="text-action" onClick={() => open(deadline.id)}>{deadline.title}</button>
+          : <p>No open findings with a calendar deadline.</p>}
+      </section>
+    </div>
     <div className="rib">{stats.map(([label, value, color]) => <div key={label}><small>{label}</small><b style={{ color }}>{value}</b></div>)}</div>
     <div className="cols"><div className="sec"><div className="sh">Deadline runway <span>gaps by owner · to {date(end)}</span>
       <span className="r mono">{severities.slice(0, 4).map((level, i) => <Fragment key={level}><i className="d" style={{ background: colors[i], marginLeft: 8 }} />{level}</Fragment>)}</span></div>
