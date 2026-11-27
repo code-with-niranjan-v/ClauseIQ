@@ -28,7 +28,7 @@ class Extractor(Protocol):
 
 
 class RuleBasedExtractor:
-    """Flags sentences with mandatory wording. Used when no LLM is configured.
+    """Flags sentences with mandatory wording. Offline development only (EXTRACTION_MODE=rules).
 
     It quotes sentences verbatim, so every candidate has a valid citation, but it
     does not rewrite them into atomic obligations the way the LLM extractor does.
@@ -65,15 +65,15 @@ class RuleBasedExtractor:
 class _LlmObligation(BaseModel):
     summary: str = Field(description="One-sentence statement of a single, atomic obligation")
     requiredAction: str = Field(description="What the regulated entity has to do or must not do")
-    responsibleEntity: str | None = Field(default=None, description="Who has to comply, as named in the text")
-    deadline: str | None = Field(default=None, description="Deadline or timeframe stated in the text, else null")
-    applicability: str | None = Field(default=None, description="Scope the obligation applies to, else null")
+    responsibleEntity: str | None = Field(description="Who has to comply, as named in the text, else null")
+    deadline: str | None = Field(description="Deadline or timeframe stated in the text, else null")
+    applicability: str | None = Field(description="Scope the obligation applies to, else null")
     quotedText: str = Field(description="Exact, contiguous text copied from the page that states the obligation")
-    confidence: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(description="Between 0 and 1")
 
 
 class _LlmObligations(BaseModel):
-    obligations: list[_LlmObligation] = Field(default_factory=list)
+    obligations: list[_LlmObligation]
 
 
 SYSTEM_PROMPT = """You extract regulatory obligations from one page of a regulatory circular.
@@ -123,15 +123,10 @@ class LlmExtractor:
         return candidates
 
 
-def build_extractor(settings: Settings) -> Extractor:
-    if not settings.llm_model:
-        logger.warning("LLM_MODEL is not set. Using the rule-based obligation extractor.")
+def build_extractor(settings: Settings, model=None) -> Extractor:
+    if settings.extraction_mode == "rules":
+        logger.warning("EXTRACTION_MODE=rules. Using the offline keyword extractor, not OpenAI.")
         return RuleBasedExtractor()
-    from langchain.chat_models import init_chat_model
+    from app.llm import build_chat_model
 
-    options: dict = {"temperature": 0}
-    if settings.llm_base_url:
-        options["base_url"] = settings.llm_base_url
-    if settings.llm_api_key:
-        options["api_key"] = settings.llm_api_key
-    return LlmExtractor(init_chat_model(settings.llm_model, model_provider=settings.llm_provider, **options))
+    return LlmExtractor(model or build_chat_model(settings))

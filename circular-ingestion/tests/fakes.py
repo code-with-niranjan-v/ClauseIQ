@@ -59,3 +59,22 @@ def make_event(pdf: bytes, **overrides) -> IngestionEvent:
     }
     payload.update(overrides)
     return IngestionEvent.model_validate(payload)
+
+
+class ScriptedChatModel:
+    """Stands in for ChatOpenAI. `handlers` maps a structured-output schema name to a reply function."""
+
+    def __init__(self, handlers: dict) -> None:
+        self.handlers = handlers
+        self.calls: list[tuple[str, str]] = []
+
+    def with_structured_output(self, schema):
+        model = self
+
+        class Bound:
+            def invoke(self, messages):
+                prompt = messages[-1][1]
+                model.calls.append((schema.__name__, prompt))
+                return schema.model_validate(model.handlers[schema.__name__](prompt))
+
+        return Bound()

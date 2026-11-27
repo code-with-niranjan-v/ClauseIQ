@@ -7,12 +7,14 @@ from datetime import datetime, timezone
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from pydantic import ValidationError
 
-from app import workflow
+from app import knowledge, workflow
+from app.assessment import LlmAssessor
 from app.config import Settings
 from app.db import PostgresRepository
 from app.embeddings import build_embedder
 from app.extraction import build_extractor
 from app.graph_store import build_graph_store
+from app.llm import build_chat_model
 from app.models import IngestionEvent
 from app.storage import MinioStore
 
@@ -40,9 +42,10 @@ class EventProcessor:
                 return "SKIPPED"
             try:
                 result = workflow.run(self._pipeline, event)
-                logger.info("Document %s: %s pages, %s chunks, %s obligations, %s rejected",
+                logger.info("Document %s: %s pages, %s chunks, %s obligations, %s rejected, %s findings",
                             event.document_id, result.page_count, len(result.chunks),
-                            len(result.obligations), len(result.rejected))
+                            len(result.obligations), len(result.rejected),
+                            sum(1 for item in result.assessments if item.finding_type))
                 return "COMPLETED"
             except Exception as failure:
                 error = f"{type(failure).__name__}: {failure}"
@@ -108,14 +111,25 @@ class DocumentConsumer:
 
     def _build_processor(self) -> EventProcessor:
         settings = self._settings
+        embedder = build_embedder(settings)
+        model = build_chat_model(settings)
         repository = PostgresRepository(settings.database_url, settings.embedding_dimensions)
         repository.ensure_schema()
         graph = build_graph_store(settings)
         if hasattr(graph, "ensure_schema"):
             graph.ensure_schema()
+        if settings.seed_knowledge_on_start:
+            loaded = knowledge.load(settings.knowledge_dir)
+            label = f"{settings.embedding_provider}:{settings.embedding_model}:{settings.embedding_dimensions}"
+            if repository.seed_knowledge(loaded, embedder, label):
+                logger.info("Loaded %s policy sections, %s controls and %s roles",
+                            len(loaded.policies), len(loaded.controls), len(loaded.roles))
+            graph.seed_knowledge(loaded)
         pipeline = workflow.build_workflow(workflow.Dependencies(
-            store=MinioStore(settings), extractor=build_extractor(settings), embedder=build_embedder(settings),
-            repository=repository, graph=graph, chunk_max_chars=settings.chunk_max_chars))
+            store=MinioStore(settings), extractor=build_extractor(settings, model), embedder=embedder,
+            repository=repository, graph=graph, chunk_max_chars=settings.chunk_max_chars,
+            knowledge=repository, assessor=LlmAssessor(model),
+            policy_top_k=settings.policy_top_k, control_top_k=settings.control_top_k))
         return EventProcessor(repository, pipeline, settings.max_attempts, settings.retry_backoff_seconds)
 
     async def _connect(self) -> None:

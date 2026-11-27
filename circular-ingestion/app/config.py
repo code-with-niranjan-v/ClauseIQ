@@ -35,16 +35,23 @@ class Settings(BaseSettings):
     # Chunking.
     chunk_max_chars: int = 1500
 
-    # Obligation extraction. Without LLM_MODEL the worker uses the rule-based extractor.
-    llm_model: str = ""
-    llm_provider: str = "openai"
-    llm_base_url: str = ""
-    llm_api_key: str = ""
+    # OpenAI. The key is required for extraction, gap analysis and embeddings.
+    openai_api_key: str = ""
+    llm_model: str = "gpt-4o-mini"
+    llm_temperature: float = 0.0
+    llm_base_url: str = ""  # only for an OpenAI-compatible gateway
+    # "llm" uses OpenAI. "rules" is an offline keyword extractor for development only.
+    extraction_mode: str = "llm"
 
-    # Embeddings. "hash" is a local, deterministic placeholder. "openai" calls the API.
-    embedding_provider: str = "hash"
+    # Embeddings. "openai" calls the API. "hash" is an offline placeholder for tests.
+    embedding_provider: str = "openai"
     embedding_model: str = "text-embedding-3-small"
-    embedding_dimensions: int = 384
+    embedding_dimensions: int = 1536
 
+    # Internal knowledge: policy handbook, control register and role directory.
+    knowledge_dir: str = "sample-data"
+    seed_knowledge_on_start: bool = True
+    policy_top_k: int = 4
+    control_top_k: int = 3
 
 settings = Settings()

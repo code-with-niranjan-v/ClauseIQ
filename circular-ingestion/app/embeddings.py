@@ -15,9 +15,8 @@ class Embedder(Protocol):
 class HashEmbedder:
     """Deterministic bag-of-words hashing vectors.
 
-    A local placeholder so the pipeline and pgvector index work without an
-    embedding API. It matches shared words, not meaning. Use a real embedding
-    model before relying on retrieval quality.
+    An offline placeholder for tests (EMBEDDING_PROVIDER=hash). It matches
+    shared words, not meaning.
     """
 
     def __init__(self, dimensions: int) -> None:
@@ -40,11 +39,12 @@ class OpenAIEmbedder:
     def __init__(self, settings: Settings) -> None:
         from langchain_openai import OpenAIEmbeddings
 
-        options: dict = {"model": settings.embedding_model, "dimensions": settings.embedding_dimensions}
+        from app.llm import require_key
+
+        options: dict = {"model": settings.embedding_model, "dimensions": settings.embedding_dimensions,
+                         "api_key": require_key(settings)}
         if settings.llm_base_url:
             options["base_url"] = settings.llm_base_url
-        if settings.llm_api_key:
-            options["api_key"] = settings.llm_api_key
         self._client = OpenAIEmbeddings(**options)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
