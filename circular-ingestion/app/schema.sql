@@ -171,3 +171,57 @@ CREATE TABLE IF NOT EXISTS ingestion_queue (
     id boolean PRIMARY KEY CHECK (id),
     cleared_before timestamptz NOT NULL
 );
+
+-- System assessments: a bank's SRE document, architecture diagram and ER diagram compared with circulars.
+CREATE TABLE IF NOT EXISTS system_assessment (
+    id uuid PRIMARY KEY,
+    name text NOT NULL,
+    status text NOT NULL,              -- QUEUED, PROCESSING, COMPLETED, FAILED
+    stage text,
+    error text,
+    fact_count integer,
+    compared_count integer,
+    not_applicable_count integer,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    completed_at timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS system_artifact (
+    id uuid PRIMARY KEY,
+    assessment_id uuid NOT NULL REFERENCES system_assessment(id) ON DELETE CASCADE,
+    kind text NOT NULL,                -- SRE, ARCHITECTURE, ER
+    filename text NOT NULL,
+    content_type text NOT NULL,
+    checksum text NOT NULL,
+    size_bytes integer NOT NULL,
+    method text,                       -- TEXT, VISION
+    summary text
+);
+
+CREATE TABLE IF NOT EXISTS system_fact (
+    id uuid PRIMARY KEY,
+    assessment_id uuid NOT NULL REFERENCES system_assessment(id) ON DELETE CASCADE,
+    artifact_id uuid NOT NULL REFERENCES system_artifact(id) ON DELETE CASCADE,
+    page_number integer,
+    content text NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS system_finding (
+    id uuid PRIMARY KEY,
+    assessment_id uuid NOT NULL REFERENCES system_assessment(id) ON DELETE CASCADE,
+    obligation_id uuid NOT NULL REFERENCES obligation(id) ON DELETE CASCADE,
+    status text NOT NULL,              -- MEETS, PARTIAL, GAP, CONFLICT, UNVERIFIED
+    severity text,
+    title text NOT NULL,
+    explanation text NOT NULL,
+    improvement text NOT NULL,
+    owner_role text NOT NULL,
+    effort text NOT NULL,
+    confidence real NOT NULL,
+    similarity real NOT NULL,
+    system_quote text,
+    evidence_fact_ids uuid[] NOT NULL,
+    original_ai_output jsonb NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS system_finding_assessment_idx ON system_finding (assessment_id);

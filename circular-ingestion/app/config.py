@@ -58,4 +58,8 @@ class Settings(BaseSettings):
     chat_top_k: int = 5
     chat_min_similarity: float = 0.3
 
+    # System assessments. Obligations below the similarity threshold to every system fact are not compared.
+    system_min_similarity: float = 0.3
+    system_max_obligations: int = 20
+
 settings = Settings()

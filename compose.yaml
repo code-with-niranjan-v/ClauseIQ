@@ -103,6 +103,8 @@ services:
       EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
       CHAT_MIN_SIMILARITY: ${CHAT_MIN_SIMILARITY:-0.3}
       CHAT_TOP_K: ${CHAT_TOP_K:-5}
+      SYSTEM_MIN_SIMILARITY: ${SYSTEM_MIN_SIMILARITY:-0.3}
+      SYSTEM_MAX_OBLIGATIONS: ${SYSTEM_MAX_OBLIGATIONS:-20}
     depends_on:
       ingestion-postgres:
         condition: service_healthy
