@@ -18,7 +18,8 @@ class ScannerRepository {
     record Document(UUID id, UUID documentId, String regulator, String url, String title, String checksum,
                     String bucket, String key, OffsetDateTime createdAt) {}
 
-    record QueueEntry(UUID id, String title, String regulator, OffsetDateTime queuedAt, boolean published) {}
+    record QueueEntry(UUID id, String title, String regulator, OffsetDateTime queuedAt, boolean published,
+                      String publicationError) {}
 
     private static final RowMapper<Source> SOURCE = (rs, row) -> new Source(
             rs.getString("id"), rs.getString("name"), rs.getString("regulator"), rs.getString("listing_url"),
@@ -66,7 +67,7 @@ class ScannerRepository {
 
     boolean requeueUpload(String source, String checksum, OffsetDateTime cutoff) {
         return jdbc.update("""
-                UPDATE scanned_document SET requeued_at = clock_timestamp(), published_at = NULL
+                UPDATE scanned_document SET requeued_at = clock_timestamp(), published_at = NULL, publication_error = NULL
                 WHERE source_id = ? AND checksum = ?
                   AND COALESCE(requeued_at, created_at) <= ?
                 """, source, checksum, cutoff) > 0;
@@ -102,15 +103,20 @@ class ScannerRepository {
     List<QueueEntry> queueEntries() {
         return jdbc.query("""
                 SELECT d.id, d.title, s.regulator, COALESCE(d.requeued_at, d.created_at) AS queued_at,
-                       d.published_at IS NOT NULL AS published
+                       d.published_at IS NOT NULL AS published, d.publication_error
                 FROM scanned_document d JOIN regulatory_source s ON s.id = d.source_id
                 ORDER BY queued_at, d.id
                 """, (rs, row) -> new QueueEntry(rs.getObject("id", UUID.class), rs.getString("title"),
                 rs.getString("regulator"), rs.getObject("queued_at", OffsetDateTime.class),
-                rs.getBoolean("published")));
+                rs.getBoolean("published"), rs.getString("publication_error")));
     }
 
     void published(UUID id) {
-        jdbc.update("UPDATE scanned_document SET published_at = now() WHERE id = ?", id);
+        jdbc.update("UPDATE scanned_document SET published_at = now(), publication_error = NULL WHERE id = ?", id);
+    }
+
+    void publicationFailed(UUID id) {
+        jdbc.update("UPDATE scanned_document SET publication_error = ? WHERE id = ?",
+                "Kafka did not acknowledge this circular. Publication will retry automatically.", id);
     }
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import CircularList from './CircularProgress.jsx'
 import { api } from './api.js'
 import FindingReview from './FindingReview.jsx'
 import ProcessingControls from './ProcessingControls.jsx'
@@ -46,38 +47,37 @@ function Stage({ number, title, does, count, state, empty, controls, children })
   )
 }
 
-function PendingQueue({ queue }) {
-  const { data, error, loading } = queue
-  return (
-    <div className="processing-controls">
-      <h3>{data ? `Pending queue (${data.length})` : 'Pending queue'}</h3>
-      {loading && <p className="sub">Loading queue…</p>}
-      {error && <p className="notice notice-bad" role="alert">{error}</p>}
-      {!error && data?.length === 0 && <p className="sub">No PDFs are waiting.</p>}
-      {data?.length > 0 && (
-        <div className="table-wrap">
-          <table aria-label="Pending PDFs">
-            <thead><tr><th>PDF</th><th>Queued</th><th>Status</th></tr></thead>
-            <tbody>
-              {data.map((item) => (
-                <tr key={item.id}>
-                  <td><strong>{item.title || 'Untitled circular'}</strong><span className="sub">{item.regulator}</span></td>
-                  <td>{when(item.queuedAt)}</td>
-                  <td>{item.published ? 'Waiting for worker' : 'Waiting to be sent'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  )
+function mergeCirculars(documents = [], queue = []) {
+  const rows = new Map(documents.map((item) => [
+    item.documentVersionId,
+    {
+      ...item,
+      status: item.processingStatus === 'FAILED' && item.eventStatus === 'DEAD_LETTERED'
+        ? 'DEAD_LETTERED' : item.processingStatus,
+    },
+  ]))
+  for (const item of queue) {
+    const existing = rows.get(item.id)
+    if (['COMPLETED', 'PROCESSING'].includes(existing?.status)) continue
+    rows.set(item.id, {
+      ...existing,
+      documentVersionId: item.id,
+      title: item.title,
+      regulator: item.regulator,
+      createdAt: existing?.createdAt ?? item.queuedAt,
+      status: item.published ? 'QUEUED' : 'WAITING_TO_PUBLISH',
+      processingError: null,
+      publicationError: item.publicationError,
+    })
+  }
+  return [...rows.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
 }
 
 export default function App() {
   const [tick, setTick] = useState(0)
   const [updated, setUpdated] = useState(null)
   const [documentVersion, setDocumentVersion] = useState(null)
+  const [reviewStatus, setReviewStatus] = useState('')
   const [openFinding, setOpenFinding] = useState(null)
   const [scanning, setScanning] = useState(null)
   const [scanMessage, setScanMessage] = useState(null)
@@ -102,9 +102,24 @@ export default function App() {
 
   const inDocument = (item) => !documentVersion || item.documentVersionId === documentVersion
   const shownObligations = obligations.data?.filter(inDocument) ?? null
-  const shownFindings = findings.data?.filter(inDocument) ?? null
-  const selected = documents.data?.find((item) => item.documentVersionId === documentVersion)
-  const pending = shownFindings?.filter((item) => item.status === 'PENDING_REVIEW').length
+  const scopedFindings = findings.data?.filter(inDocument) ?? null
+  const shownFindings = scopedFindings?.filter((item) => !reviewStatus || item.status === reviewStatus) ?? null
+  const circulars = mergeCirculars(documents.data ?? [], queue.data ?? [])
+  const selected = circulars.find((item) => item.documentVersionId === documentVersion)
+  const pending = scopedFindings?.filter((item) => item.status === 'PENDING_REVIEW').length
+  const pipelineState = {
+    data: circulars.length || (documents.data && queue.data) ? circulars : null,
+    loading: documents.loading || queue.loading,
+    error: [documents.error && `Processing results: ${documents.error}`, queue.error && `Pending queue: ${queue.error}`]
+      .filter(Boolean).join(' '),
+  }
+
+  function selectCircular(id) {
+    setDocumentVersion(id)
+    setOpenFinding(null)
+    setReviewStatus('')
+    if (id) document.getElementById('circular-results')?.scrollIntoView({ block: 'start' })
+  }
 
   async function scan(source) {
     setScanning(source.id)
@@ -138,13 +153,6 @@ export default function App() {
           </span>
         </div>
       </header>
-
-      {selected && (
-        <p className="filter">
-          Showing stages 3 to 5 for <strong>{selected.title}</strong>.{' '}
-          <button type="button" className="link" onClick={() => setDocumentVersion(null)}>Show all documents</button>
-        </p>
-      )}
 
       <main className="stages">
         <Stage
@@ -204,58 +212,26 @@ export default function App() {
           number={2}
           title="Read each circular"
           does="The ingestion worker takes one event at a time, fetches the PDF and extracts its text page by page."
-          count={documents.data ? plural(documents.data.length, 'document') : null}
-          state={documents}
-          empty="No circular has reached the worker yet."
-          controls={<>
-            <ProcessingControls processing={processing} refresh={refresh} />
-            <PendingQueue queue={queue} />
-          </>}
+          count={pipelineState.data ? plural(circulars.length, 'circular') : null}
+          state={pipelineState}
+          empty="No circulars yet. Scan a regulator or upload a PDF."
+          controls={<ProcessingControls processing={processing} refresh={refresh} />}
         >
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Circular</th><th>Processing</th><th className="number">Pages</th>
-                  <th className="number">Obligations</th><th className="number">Findings</th>
-                  <th><span className="sr-only">Filter</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {documents.data?.map((item) => (
-                  <tr key={item.documentVersionId} className={item.documentVersionId === documentVersion ? 'selected' : ''}>
-                    <td>
-                      <strong>{item.title || 'Untitled circular'}</strong>
-                      <span className="sub">
-                        {item.regulator}, received {when(item.createdAt)}
-                        {item.sourceUrl?.startsWith('http') && (
-                          <>, <a href={item.sourceUrl} target="_blank" rel="noreferrer">source</a></>
-                        )}
-                      </span>
-                    </td>
-                    <td><Status value={item.processingStatus} /></td>
-                    <td className="number">{item.pageCount ?? ''}</td>
-                    <td className="number">{item.obligationCount ?? ''}</td>
-                    <td className="number">
-                      {item.findingCount}
-                      {item.pendingFindingCount > 0 && <span className="sub">{item.pendingFindingCount} pending</span>}
-                    </td>
-                    <td className="action">
-                      <button
-                        type="button"
-                        className="link"
-                        onClick={() => setDocumentVersion(
-                          item.documentVersionId === documentVersion ? null : item.documentVersionId)}
-                      >
-                        {item.documentVersionId === documentVersion ? 'Show all' : 'Show only this'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <CircularList items={circulars} selectedId={documentVersion} select={selectCircular} when={when} />
         </Stage>
+
+        <div id="circular-results" className={documentVersion ? 'selected-circular' : undefined}>
+          {documentVersion && <>
+            <div>
+              <strong>{selected?.title ?? 'Selected circular'}</strong>
+              {selected && <span className="sub">{selected.regulator} ? <Status value={selected.status} /></span>}
+              {(selected?.publicationError || (['FAILED', 'DEAD_LETTERED'].includes(selected?.status) && selected?.processingError)) &&
+                <span className="sub circular-error">{selected.publicationError ?? selected.processingError}</span>}
+              {!selected && <span className="sub">This circular is no longer in the queue or processing results.</span>}
+            </div>
+            <button type="button" className="button" onClick={() => selectCircular(null)}>Show all circulars</button>
+          </>}
+        </div>
 
         <Stage
           number={3}
@@ -263,7 +239,7 @@ export default function App() {
           does="The model lists what the circular requires. An obligation is kept only if its quote is found word for word on the cited page."
           count={shownObligations ? plural(shownObligations.length, 'obligation') : null}
           state={{ ...obligations, data: shownObligations }}
-          empty="No obligations have been extracted yet."
+          empty={resultsEmpty(selected, documentVersion, 'No obligations were extracted.', 'No obligations have been extracted yet.')}
         >
           <ol className="obligations">
             {shownObligations?.map((item) => (
@@ -292,7 +268,7 @@ export default function App() {
           does="Each obligation is checked against the policy handbook and control register. Covered means the documents cover it, not that it is done in practice."
           count={shownObligations ? coverageCount(shownObligations) : null}
           state={{ ...obligations, data: shownObligations }}
-          empty="Nothing has been compared yet."
+          empty={resultsEmpty(selected, documentVersion, 'No obligations were available for comparison.', 'Nothing has been compared yet.')}
         >
           <div className="table-wrap">
             <table>
@@ -319,9 +295,17 @@ export default function App() {
           number={5}
           title="Review findings"
           does="Every gap becomes a finding with a drafted fix and an owner. Nothing is final until a reviewer accepts, edits or rejects it."
-          count={shownFindings ? `${plural(shownFindings.length, 'finding')}, ${pending} pending` : null}
+          count={scopedFindings ? `${plural(scopedFindings.length, 'finding')}, ${pending} pending` : null}
           state={{ ...findings, data: shownFindings }}
-          empty="No gaps were found, so there is nothing to review."
+          empty={reviewStatus && scopedFindings?.length ? 'No findings match the selected review status.'
+            : resultsEmpty(selected, documentVersion, 'Processing completed without findings.', 'No findings are available yet.')}
+          controls={scopedFindings?.length > 0 && <div className="dashboard-filters">
+            <label>Review status<select value={reviewStatus} onChange={(event) => setReviewStatus(event.target.value)}>
+              <option value="">All review statuses</option>
+              {['PENDING_REVIEW', 'APPROVED', 'APPROVED_WITH_CHANGES', 'REJECTED'].map((status) =>
+                <option key={status} value={status}>{label(status)}</option>)}
+            </select></label>
+          </div>}
         >
           <ul className="findings">
             {shownFindings?.map((item) => {
@@ -355,6 +339,15 @@ export default function App() {
       </main>
     </div>
   )
+}
+
+function resultsEmpty(selected, selectedId, completed, general) {
+  if (!selectedId) return general
+  if (!selected) return 'Results are unavailable for this circular.'
+  if (selected.status === 'COMPLETED') return completed
+  if (['FAILED', 'DEAD_LETTERED'].includes(selected.status)) return 'Processing failed before results were available.'
+  if (selected.status === 'PROCESSING') return 'Processing is underway. Results will appear here when it completes.'
+  return 'Waiting for the worker to start processing this circular.'
 }
 
 function plural(count, noun) {

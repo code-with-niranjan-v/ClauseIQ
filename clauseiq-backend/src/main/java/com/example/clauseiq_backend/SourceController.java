@@ -33,7 +33,8 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequestMapping("/api/admin/sources")
 class SourceController {
-    record QueueEntry(UUID id, String title, String regulator, OffsetDateTime queuedAt, boolean published) {}
+    record QueueEntry(UUID id, String title, String regulator, OffsetDateTime queuedAt, boolean published,
+                      String publicationError) {}
     private record ProcessingAttempt(String status, OffsetDateTime startedAt) {}
 
     private final RestClient scanner;
